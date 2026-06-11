@@ -36,6 +36,7 @@ source "$ROOT_DIR/lib/core/aws_auth.sh"
 source "$ROOT_DIR/lib/core/aws.sh"
 source "$ROOT_DIR/lib/core/commands.sh"
 source "$ROOT_DIR/lib/aws/ec2.sh"
+source "$ROOT_DIR/lib/aws/codebuild.sh"
 source "$ROOT_DIR/lib/aws/ssm.sh"
 
 # Commands

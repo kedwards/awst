@@ -13,7 +13,13 @@ Usage: awst connect [OPTIONS] [INSTANCE]
 
 Options:
   --config               Config-based port forwarding
+  --codebuild            CodeBuild session debugging
+  --project-name NAME    CodeBuild project name
+  --build-id ID          CodeBuild build ID (optional, auto-selects if not provided)
   -f, --file FILE        Config file override
+  -p, --profile PROFILE  AWS profile
+  -r, --region REGION    AWS region
+  -y, --yes              Skip interactive prompts
   -h, --help
 EOF
 }
@@ -26,11 +32,44 @@ awst_connect() {
     return 0
   fi
 
-  if [[ "$CONFIG_MODE" == true ]]; then
+  if [[ "$CODEBUILD_MODE" == true ]] || [[ -n "$CODEBUILD_PROJECT" ]]; then
+    awst_connect_codebuild_mode
+  elif [[ "$CONFIG_MODE" == true ]]; then
     awst_connect_config_mode
   else
     awst_connect_shell_mode
   fi
+}
+
+awst_connect_codebuild_mode() {
+  # Validate project name
+  if [[ -z "$CODEBUILD_PROJECT" ]]; then
+    log_error "CodeBuild project name required (--project-name)"
+    return 1
+  fi
+
+  if non_interactive_mode && [[ -z "$CODEBUILD_BUILD_ID" ]] && [[ "${MENU_ASSUME_FIRST:-0}" != "1" ]]; then
+    log_error "CodeBuild build selection requires interaction"
+    log_error "or pass --build-id explicitly"
+    return 1
+  fi
+
+  # Resolve profile/region and authenticate
+  choose_profile_and_region || return 1
+  aws_auth_assume "$PROFILE" "$REGION" || return 1
+
+  local subheader="Profile: ${PROFILE:-${AWS_PROFILE:-unknown}} | Region: ${REGION:-${AWS_REGION:-unknown}}"
+
+  # Select build (explicit or interactive)
+  local build_id
+  build_id=$(aws_codebuild_select_build "$CODEBUILD_PROJECT" "$CODEBUILD_BUILD_ID" "$subheader") || return $?
+
+  # Get debug session target
+  local target
+  target=$(aws_codebuild_get_debug_session_target "$build_id") || return 1
+
+  log_info "Connecting to CodeBuild build: $build_id"
+  awst_ssm_start_shell "$target"
 }
 
 awst_connect_shell_mode() {
