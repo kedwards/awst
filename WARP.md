@@ -94,14 +94,43 @@ itself is **not** installed inside the runtime image.
 
 Phase 2 is opt-in — the existing host install (`install.sh` / `bin/awst`) is
 unchanged. `CONTAINERS_PLAN.md` describes the rollout (Phase 1: dev image;
-Phase 2: runtime image + wrapper; Phase 3: container-first installer).
+Phase 2: runtime image + wrapper; Phase 3: container-first installer + GHCR).
 
-### Installation
+### Container-First Installer (Phase 3)
+
+`install.sh` defaults to container mode: detects `docker`/`podman`, pulls the
+runtime image from `ghcr.io/kedwards/aws-tools:<version>`, downloads the host
+wrapper from `containers/awst-host` at the matching tag, writes a pinned
+image config to `~/.local/share/aws-tools/etc/awst.env`, and symlinks
+`~/.local/bin/awst`.
+
 ```bash
-# Install to ~/.local/share/aws-tools with symlinks in ~/.local/bin
-./install.sh
+# Container install (default)
+./install.sh                  # latest release
+./install.sh v2.4.0           # pinned version
 
-# Update existing installation
+# Host install (fallback) — original tarball-based behavior
+./install.sh --host
+./install.sh --host v2.4.0
+
+# Updates respect the original install mode (recorded in ${INSTALL_DIR}/.mode)
+./update.sh                   # update to latest, mode-aware
+```
+
+Container mode pins the image tag in `awst.env`; `awst update` is the
+explicit upgrade path (no `:latest` drift).
+
+GHCR publish is wired through `.github/workflows/release.yml` on tag push:
+multi-arch (`amd64+arm64`) image with tags `vX.Y.Z`, `vX.Y`, `vX`, `latest`.
+`.github/workflows/ci.yml` runs `task docker:ci` plus a runtime-image build
+on every PR.
+
+### Installation (Original Host Mode)
+```bash
+# Tarball-based host install — requires bash, aws-cli, assume, session-manager-plugin
+./install.sh --host
+
+# Update existing host install
 ./update.sh
 ```
 

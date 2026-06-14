@@ -1,12 +1,10 @@
 # Containerization Plan: `aws-tools` (`awst`)
 
 Status:
-- **Phase 1: DONE** — dev image + `task docker:*` (merged on `containers`).
-- **Phase 2: IN PROGRESS** — runtime image (`containers/Dockerfile.runtime`) +
-  host wrapper (`containers/awst-host`) landed; opt-in, dogfooding.
-- **Phase 3: NOT STARTED** — installer flip, GHCR publish, multi-arch.
-
-Branch: `containers`.
+- **Phase 1: DONE** — dev image + `task docker:*` (v2.3.0).
+- **Phase 2: DONE** — runtime image + host wrapper, opt-in (v2.3.0).
+- **Phase 3: IN PROGRESS** — GHCR publish workflow, container-first
+  `install.sh`/`update.sh`, multi-arch (amd64+arm64). Targets v2.4.0.
 
 ## Decisions
 

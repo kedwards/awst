@@ -9,14 +9,25 @@
 # dogfooding — Phase 3 will replace bin/awst with this wrapper at install time.
 #
 # Env overrides:
-#   AWST_IMAGE             image:tag                       (default: aws-tools:runtime)
+#   AWST_IMAGE             image:tag                       (default from awst.env, else aws-tools:runtime)
 #   AWST_CONTAINER_ENGINE  docker|podman                   (default: auto-detect)
 #   AWST_NETWORK           docker --network value          (default: host)
 #                          set to empty string to skip --network entirely
 #   AWST_PID_MODE          docker --pid value              (default: host)
 #                          host = `awst list/kill` see host ssm sessions
 #                          set to empty string for isolated PID namespace
+#   AWST_ENV_FILE          path to sidecar env file        (default: ~/.local/share/aws-tools/etc/awst.env)
+#                          install.sh writes the pinned image tag there.
 set -euo pipefail
+
+# Pull defaults from the install-time sidecar env file if it exists and the
+# user hasn't already set AWST_IMAGE. install.sh writes this file with the
+# pinned image tag at install time; `awst update` rewrites it on upgrade.
+AWST_ENV_FILE="${AWST_ENV_FILE:-$HOME/.local/share/aws-tools/etc/awst.env}"
+if [[ -z "${AWST_IMAGE:-}" && -f "$AWST_ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$AWST_ENV_FILE"
+fi
 
 IMAGE="${AWST_IMAGE:-aws-tools:runtime}"
 ENGINE="${AWST_CONTAINER_ENGINE:-}"

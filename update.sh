@@ -1,94 +1,155 @@
 #!/usr/bin/env bash
+# aws-tools updater. Detects whether the existing install is container-mode
+# or host-mode (via ${INSTALL_DIR}/.mode) and updates in place.
+#
+# Usage:
+#   ./update.sh                # update to latest release
+#   ./update.sh v2.4.0         # update to specific tag
+#   ./update.sh main           # track main branch (host mode only)
+
 set -euo pipefail
 
 REPO_NAME="aws-tools"
 REPO="kedwards/${REPO_NAME}"
-INSTALL_DIR="${HOME}/.local/share/${REPO_NAME}"
 REPO_URL="https://github.com/${REPO}"
+IMAGE_REPO="ghcr.io/${REPO}"
+INSTALL_DIR="${HOME}/.local/share/${REPO_NAME}"
+ETC_DIR="${INSTALL_DIR}/etc"
+ENV_FILE="${ETC_DIR}/awst.env"
+MODE_FILE="${INSTALL_DIR}/.mode"
 
 if [[ ! -d "${INSTALL_DIR}" ]]; then
-  echo "[ERROR] ${REPO_NAME} is not installed in ${INSTALL_DIR}"
-  echo "Install it with:"
-  echo "  curl -sSL https://raw.githubusercontent.com/${REPO}/main/install.sh | bash"
+  cat >&2 <<EOF
+[ERROR] ${REPO_NAME} is not installed in ${INSTALL_DIR}
+Install it first:
+  curl -sSL https://raw.githubusercontent.com/${REPO}/main/install.sh | bash
+EOF
   exit 1
 fi
 
-# Show current version
-CURRENT_VERSION="$(cat "${INSTALL_DIR}/VERSION" 2>/dev/null || echo 'unknown')"
-echo "[INFO] Current version: ${CURRENT_VERSION}"
-
-# Parse version argument (defaults to latest release)
 VERSION="${1:-latest}"
 
-echo "[INFO] Updating ${REPO_NAME} in ${INSTALL_DIR}"
-
-tmpdir="$(mktemp -d)"
-trap 'rm -rf "$tmpdir"' EXIT
-
-# Determine download URL based on version
-if [[ "$VERSION" == "latest" ]]; then
-  # Try to get latest release tag, fallback to main
-  echo "[INFO] Fetching latest release..."
-  LATEST_TAG=$(curl -sSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
-  
-  if [[ -n "$LATEST_TAG" ]]; then
-    echo "[INFO] Downloading ${REPO_NAME} ${LATEST_TAG}..."
-    DOWNLOAD_URL="${REPO_URL}/archive/refs/tags/${LATEST_TAG}.tar.gz"
-    EXTRACTED_DIR="${tmpdir}/${REPO_NAME}-${LATEST_TAG#v}"
-  else
-    echo "[INFO] No releases found, downloading from main branch..."
-    DOWNLOAD_URL="${REPO_URL}/archive/refs/heads/main.tar.gz"
-    EXTRACTED_DIR="${tmpdir}/${REPO_NAME}-main"
+resolve_version() {
+  if [[ "$VERSION" == "latest" ]]; then
+    local tag
+    tag=$(curl -sSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
+            | grep '"tag_name":' \
+            | sed -E 's/.*"([^"]+)".*/\1/' \
+            || true)
+    if [[ -n "$tag" ]]; then
+      VERSION="$tag"
+    else
+      echo "[WARN] No releases found; falling back to 'main'"
+      VERSION="main"
+    fi
   fi
-elif [[ "$VERSION" == "main" ]] || [[ "$VERSION" == "dev" ]]; then
-  echo "[INFO] Downloading ${REPO_NAME} from main branch..."
-  DOWNLOAD_URL="${REPO_URL}/archive/refs/heads/main.tar.gz"
-  EXTRACTED_DIR="${tmpdir}/${REPO_NAME}-main"
-else
-  # Update to specific version (tag)
-  echo "[INFO] Downloading ${REPO_NAME} ${VERSION}..."
-  DOWNLOAD_URL="${REPO_URL}/archive/refs/tags/${VERSION}.tar.gz"
-  EXTRACTED_DIR="${tmpdir}/${REPO_NAME}-${VERSION#v}"
+}
+
+# Detect install mode (default to host for back-compat with pre-Phase-3 installs)
+INSTALL_MODE="host"
+if [[ -f "$MODE_FILE" ]]; then
+  INSTALL_MODE="$(cat "$MODE_FILE")"
 fi
 
-curl -sSL "$DOWNLOAD_URL" | tar xz -C "$tmpdir"
+CURRENT_VERSION="$(cat "${INSTALL_DIR}/VERSION" 2>/dev/null || echo 'unknown')"
+echo "[INFO] Current install: mode=${INSTALL_MODE}, version=${CURRENT_VERSION}"
 
-echo "[INFO] Syncing files..."
-rsync -a --delete "${EXTRACTED_DIR}/" "${INSTALL_DIR}/"
+update_container() {
+  local engine=""
+  if command -v docker >/dev/null 2>&1; then
+    engine=docker
+  elif command -v podman >/dev/null 2>&1; then
+    engine=podman
+  else
+    echo "[ERROR] Container update requires docker or podman on PATH." >&2
+    exit 1
+  fi
 
-# Update default connections from examples/connections.config
-if [[ -f "${INSTALL_DIR}/examples/connections.config" ]]; then
-  echo "[INFO] Updating default connections..."
-  cp "${INSTALL_DIR}/examples/connections.config" "${INSTALL_DIR}/connections.config"
-else
-  echo "[WARN] examples/connections.config not found, default connections may be outdated"
-fi
+  resolve_version
+  local image_tag="${IMAGE_REPO}:${VERSION}"
+  local wrapper_url="https://raw.githubusercontent.com/${REPO}/${VERSION}/containers/awst-host"
 
-# Deploy new default commands to user config directory (preserve existing)
-CONFIG_DIR="${HOME}/.config/${REPO_NAME}"
-if [[ -d "${INSTALL_DIR}/examples/commands" ]]; then
-  echo "[INFO] Deploying new default commands..."
-  mkdir -p "${CONFIG_DIR}/commands/aws" "${CONFIG_DIR}/commands/ssm"
-  rsync -a --ignore-existing "${INSTALL_DIR}/examples/commands/aws/" "${CONFIG_DIR}/commands/aws/"
-  rsync -a --ignore-existing "${INSTALL_DIR}/examples/commands/ssm/" "${CONFIG_DIR}/commands/ssm/"
-else
-  echo "[WARN] examples/commands not found, default commands may be outdated"
-fi
+  echo "[INFO] Pulling ${image_tag}..."
+  if ! "${engine}" pull "${image_tag}"; then
+    echo "[ERROR] Failed to pull ${image_tag}" >&2
+    exit 1
+  fi
 
-echo "[INFO] Commands directory: ${CONFIG_DIR}/commands/"
-echo "[INFO] Default connections updated in ${INSTALL_DIR}/connections.config"
-echo "[INFO] User custom connections preserved in ~/.config/${REPO_NAME}/connections.user.config"
+  echo "[INFO] Refreshing wrapper script (containers/awst-host @ ${VERSION})..."
+  if ! curl -fsSL "${wrapper_url}" -o "${INSTALL_DIR}/bin/awst"; then
+    echo "[ERROR] Failed to download wrapper from ${wrapper_url}" >&2
+    exit 1
+  fi
+  chmod +x "${INSTALL_DIR}/bin/awst"
 
-# Show new version
-NEW_VERSION="$(cat "${INSTALL_DIR}/VERSION" 2>/dev/null || echo 'unknown')"
+  mkdir -p "${ETC_DIR}"
+  cat >"${ENV_FILE}" <<EOF
+# Written by install.sh / update.sh. Override by exporting AWST_IMAGE
+# or by editing this file.
+AWST_IMAGE="${image_tag}"
+EOF
 
-echo ""
-if [[ "$CURRENT_VERSION" != "$NEW_VERSION" ]]; then
-  echo "[SUCCESS] ${REPO_NAME} updated from v${CURRENT_VERSION} to v${NEW_VERSION}!"
-else
-  echo "[SUCCESS] ${REPO_NAME} v${NEW_VERSION} reinstalled!"
-fi
-echo ""
-echo "To update to a specific version, run:"
-echo "  ./update.sh v0.1.0"
-echo ""
+  printf '%s\n' "$VERSION" >"${INSTALL_DIR}/VERSION"
+
+  if [[ "$CURRENT_VERSION" != "$VERSION" ]]; then
+    echo "[SUCCESS] ${REPO_NAME} updated: ${CURRENT_VERSION} -> ${VERSION} (container)"
+  else
+    echo "[SUCCESS] ${REPO_NAME} ${VERSION} reinstalled (container)"
+  fi
+}
+
+update_host() {
+  echo "[INFO] Updating ${REPO_NAME} in ${INSTALL_DIR} (host mode)"
+
+  # tmpdir is global so the EXIT trap can still see it after this function returns.
+  tmpdir="$(mktemp -d)"
+  trap 'rm -rf "$tmpdir"' EXIT
+  local extracted_dir download_url
+
+  resolve_version
+
+  if [[ "$VERSION" == "main" ]] || [[ "$VERSION" == "dev" ]]; then
+    download_url="${REPO_URL}/archive/refs/heads/main.tar.gz"
+    extracted_dir="${tmpdir}/${REPO_NAME}-main"
+  else
+    download_url="${REPO_URL}/archive/refs/tags/${VERSION}.tar.gz"
+    extracted_dir="${tmpdir}/${REPO_NAME}-${VERSION#v}"
+  fi
+
+  echo "[INFO] Downloading ${download_url}..."
+  curl -sSL "$download_url" | tar xz -C "$tmpdir"
+
+  echo "[INFO] Syncing files..."
+  rsync -a --delete "${extracted_dir}/" "${INSTALL_DIR}/"
+
+  if [[ -f "${INSTALL_DIR}/examples/connections.config" ]]; then
+    cp "${INSTALL_DIR}/examples/connections.config" "${INSTALL_DIR}/connections.config"
+  fi
+
+  local config_dir="${HOME}/.config/${REPO_NAME}"
+  if [[ -d "${INSTALL_DIR}/examples/commands" ]]; then
+    mkdir -p "${config_dir}/commands/aws" "${config_dir}/commands/ssm"
+    rsync -a --ignore-existing "${INSTALL_DIR}/examples/commands/aws/" "${config_dir}/commands/aws/"
+    rsync -a --ignore-existing "${INSTALL_DIR}/examples/commands/ssm/" "${config_dir}/commands/ssm/"
+  fi
+
+  printf '%s\n' "host" >"${INSTALL_DIR}/.mode"
+
+  local new_version
+  new_version="$(cat "${INSTALL_DIR}/VERSION" 2>/dev/null || echo 'unknown')"
+
+  if [[ "$CURRENT_VERSION" != "$new_version" ]]; then
+    echo "[SUCCESS] ${REPO_NAME} updated: v${CURRENT_VERSION} -> v${new_version} (host)"
+  else
+    echo "[SUCCESS] ${REPO_NAME} v${new_version} reinstalled (host)"
+  fi
+}
+
+case "$INSTALL_MODE" in
+  container) update_container ;;
+  host)      update_host ;;
+  *)
+    echo "[ERROR] Unknown install mode '${INSTALL_MODE}' in ${MODE_FILE}" >&2
+    exit 1
+    ;;
+esac

@@ -108,6 +108,52 @@ teardown() {
   assert_success
 }
 
+@test "reads AWST_IMAGE from sidecar env file when not set in env" {
+  mkdir -p "$TMPDIR_HOME/.local/share/aws-tools/etc"
+  cat >"$TMPDIR_HOME/.local/share/aws-tools/etc/awst.env" <<EOF
+AWST_IMAGE=ghcr.io/kedwards/aws-tools:v9.9.9
+EOF
+  unset AWST_IMAGE
+  run "$WRAPPER" list
+  assert_success
+  run grep -F "ghcr.io/kedwards/aws-tools:v9.9.9" "$TMPDIR_BIN/argv.docker"
+  assert_success
+}
+
+@test "user AWST_IMAGE overrides sidecar env file" {
+  mkdir -p "$TMPDIR_HOME/.local/share/aws-tools/etc"
+  cat >"$TMPDIR_HOME/.local/share/aws-tools/etc/awst.env" <<EOF
+AWST_IMAGE=ghcr.io/kedwards/aws-tools:v9.9.9
+EOF
+  AWST_IMAGE=local-override:test run "$WRAPPER" list
+  assert_success
+  run grep -F "local-override:test" "$TMPDIR_BIN/argv.docker"
+  assert_success
+  run grep -F "v9.9.9" "$TMPDIR_BIN/argv.docker"
+  assert_failure
+}
+
+@test "AWST_ENV_FILE override points the wrapper at a custom env file" {
+  CUSTOM_ENV="$TMPDIR_HOME/custom-awst.env"
+  cat >"$CUSTOM_ENV" <<EOF
+AWST_IMAGE=ghcr.io/kedwards/aws-tools:v4.2.0
+EOF
+  unset AWST_IMAGE
+  AWST_ENV_FILE="$CUSTOM_ENV" run "$WRAPPER" list
+  assert_success
+  run grep -F "ghcr.io/kedwards/aws-tools:v4.2.0" "$TMPDIR_BIN/argv.docker"
+  assert_success
+}
+
+@test "falls back to aws-tools:runtime when no env file and no AWST_IMAGE" {
+  # No sidecar file written; AWST_IMAGE unset.
+  unset AWST_IMAGE
+  run "$WRAPPER" list
+  assert_success
+  run grep -F "aws-tools:runtime" "$TMPDIR_BIN/argv.docker"
+  assert_success
+}
+
 @test "defaults --network host" {
   run "$WRAPPER" list
   assert_success

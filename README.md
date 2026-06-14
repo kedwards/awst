@@ -17,28 +17,53 @@ A Bash-based CLI toolkit for AWS operations — SSM sessions, multi-instance com
 
 ## Installation
 
-### Latest Release (Recommended)
+### Container Install (Default, Recommended)
+
+Pulls the runtime image from GHCR and drops a thin wrapper into `~/.local/bin/awst`. No `aws-cli` / `session-manager-plugin` install required on the host.
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/kedwards/aws-tools/main/install.sh | bash
 ```
 
-### Specific Version
+Pin a specific version:
 
 ```bash
-# Install specific version
-curl -sSL https://raw.githubusercontent.com/kedwards/aws-tools/main/install.sh | bash -s v0.1.0
+curl -sSL https://raw.githubusercontent.com/kedwards/aws-tools/main/install.sh | bash -s v2.4.0
 ```
+
+**Container install requires:** `docker` *or* `podman` on the host.
+
+### Host Install (Fallback)
+
+Original behavior — installs the bash toolkit directly with no containers involved. Use this if you can't or don't want to run a container, or on macOS/Windows where `--network host` is a no-op.
+
+```bash
+curl -sSL https://raw.githubusercontent.com/kedwards/aws-tools/main/install.sh | bash -s -- --host
+curl -sSL https://raw.githubusercontent.com/kedwards/aws-tools/main/install.sh | bash -s -- --host v2.4.0
+```
+
+**Host install requires:** `bash 4+`, `aws-cli`, `session-manager-plugin`, `assume` (Granted), `rsync`.
 
 ### From Source (Development)
 
 ```bash
 git clone https://github.com/kedwards/aws-tools
 cd aws-tools
-./install.sh
+./install.sh             # container mode
+./install.sh --host      # host mode
 ```
 
-This installs to `~/.local/share/aws-tools` with symlinks in `~/.local/bin`.
+Either mode installs to `~/.local/share/aws-tools` with a symlink in `~/.local/bin/awst`.
+
+### Authentication Note (Container Mode)
+
+`assume` (Granted) is **not** installed inside the runtime image. Run it on your *host* shell first; the wrapper forwards cached SSO credentials into the container:
+
+```bash
+source assume <profile> -r <region>   # then run awst commands
+# or
+assume <profile> -r <region> --exec -- awst connect
+```
 
 ### Check Version
 
@@ -48,15 +73,19 @@ awst --version
 
 ## Prerequisites
 
-**Required:**
+**For container install** (default):
+- `docker` or `podman` on the host
+- [`assume` (Granted)](https://granted.dev) on the host — used to populate SSO tokens that the container reads
+
+**For host install** (`--host`):
 - `bash` (4.0+)
 - `aws` CLI
-- [`assume` (Granted)](https://granted.dev) - for AWS SSO authentication
-- `session-manager-plugin` - for SSM connections
-- `rsync` - used by `install.sh` and `update.sh` to sync run-commands
+- [`assume` (Granted)](https://granted.dev) — for AWS SSO authentication
+- `session-manager-plugin` — for SSM connections
+- `rsync` — used by `install.sh` and `update.sh`
 
-**Optional:**
-- `fzf` - for enhanced interactive menus (falls back to bash `select`)
+**Optional (both):**
+- `fzf` — enhanced interactive menus (falls back to bash `select`)
 
 ## Quick Start
 
