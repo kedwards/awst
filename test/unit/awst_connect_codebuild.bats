@@ -21,11 +21,12 @@ setup() {
   # AWS auth stubs
   aws_auth_assume(){ :; }
 
-  # logging stubs
+  # logging stubs: keep debug/warn silent, but emit info/error
+  # so `assert_output --partial` can match user-facing messages.
   log_debug(){ :; }
-  log_info(){ :; }
+  log_info(){ echo "$@"; }
   log_warn(){ :; }
-  log_error(){ :; }
+  log_error(){ echo "$@" >&2; }
 
   # Core stubs
   ensure_aws_cli(){ :; }
@@ -91,13 +92,9 @@ EOF
 @test "codebuild connect fails if build has no debug session" {
   export CODEBUILD_MODE=true
   export CODEBUILD_PROJECT="DatabaseBaseline"
-  export MENU_NON_INTERACTIVE=1
-  export MENU_ASSUME_FIRST=1
-
-  # Mock CodeBuild functions
-  aws_codebuild_list_builds() {
-    echo '["build-1"]'
-  }
+  # Explicit build ID bypasses select_build's debug-session filtering
+  # so we exercise the failure path inside get_debug_session_target.
+  export CODEBUILD_BUILD_ID="build-1"
 
   aws_codebuild_batch_get_builds() {
     cat <<'EOF'
@@ -113,7 +110,7 @@ EOF
 EOF
   }
 
-  run awst_connect --codebuild --project-name DatabaseBaseline
+  run awst_connect --codebuild --project-name DatabaseBaseline --build-id build-1
 
   assert_failure
   assert_output --partial "does not have a debug session"

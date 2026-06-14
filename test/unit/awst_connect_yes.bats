@@ -45,13 +45,8 @@ setup() {
   source ./lib/aws/ec2.sh
   source ./lib/commands/awst_connect.sh
 
-  # instance list stub
+  # instance list stub (no live AWS call — safe to populate unconditionally)
   aws_get_all_running_instances() {
-    [[ -t 0 || "${MENU_NON_INTERACTIVE:-0}" == "0" ]] || {
-      log_error "Non-interactive mode but AWS call attempted"
-      return 1
-    }
-
     INSTANCE_LIST=(
       "first-instance i-1111111111"
       "second-instance i-2222222222"

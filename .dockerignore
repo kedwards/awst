@@ -1,0 +1,19 @@
+# The Phase 1 dev image does not COPY anything from the build context
+# (the repo is bind-mounted at runtime). Keep the context lean anyway
+# so future Dockerfiles inherit a sensible default.
+
+.git
+.github
+.task
+.cache
+.idea
+.vscode
+*.tar.gz
+*.zip
+*.log
+*.swp
+*.swo
+*~
+.DS_Store
+test/helpers/bats-assert/.git
+test/helpers/bats-support/.git

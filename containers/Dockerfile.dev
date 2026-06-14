@@ -1,0 +1,70 @@
+# syntax=docker/dockerfile:1
+# Dev / CI image for aws-tools.
+# Bind-mount the repo at /work and run `task test`, `task lint`, `task ci`.
+FROM debian:stable-slim
+
+ARG TASK_VERSION=3.39.2
+ARG TARGETARCH=amd64
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      bash \
+      ca-certificates \
+      curl \
+      git \
+      jq \
+      make \
+      unzip \
+      bats \
+      shellcheck \
+      shfmt \
+      fzf \
+      less \
+      rsync \
+ && rm -rf /var/lib/apt/lists/*
+
+# go-task: no Debian package, install pinned release binary
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) TASK_ARCH=amd64 ;; \
+      arm64) TASK_ARCH=arm64 ;; \
+      *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/go-task/task/releases/download/v${TASK_VERSION}/task_linux_${TASK_ARCH}.tar.gz" \
+      | tar -xz -C /usr/local/bin task; \
+    chmod +x /usr/local/bin/task; \
+    task --version
+
+# AWS CLI v2 (some unit tests source modules that require `command -v aws`)
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) AWS_ARCH=x86_64 ;; \
+      arm64) AWS_ARCH=aarch64 ;; \
+      *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${AWS_ARCH}.zip" -o /tmp/awscli.zip; \
+    unzip -q /tmp/awscli.zip -d /tmp; \
+    /tmp/aws/install; \
+    rm -rf /tmp/aws /tmp/awscli.zip; \
+    aws --version
+
+# SSM session-manager-plugin (lets devs run `awst connect` from the dev image)
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) SMP_ARCH=ubuntu_64bit ;; \
+      arm64) SMP_ARCH=ubuntu_arm64 ;; \
+      *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/${SMP_ARCH}/session-manager-plugin.deb" \
+      -o /tmp/smp.deb; \
+    dpkg -i /tmp/smp.deb; \
+    rm /tmp/smp.deb
+
+WORKDIR /work
+
+# Repo is bind-mounted at runtime via `task docker:*`; nothing is COPYed in.
+CMD ["bash"]
