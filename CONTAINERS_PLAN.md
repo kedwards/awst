@@ -1,6 +1,12 @@
 # Containerization Plan: `aws-tools` (`awst`)
 
-Status: **Plan only** — no implementation in this commit. Branch: `containers`.
+Status:
+- **Phase 1: DONE** — dev image + `task docker:*` (merged on `containers`).
+- **Phase 2: IN PROGRESS** — runtime image (`containers/Dockerfile.runtime`) +
+  host wrapper (`containers/awst-host`) landed; opt-in, dogfooding.
+- **Phase 3: NOT STARTED** — installer flip, GHCR publish, multi-arch.
+
+Branch: `containers`.
 
 ## Decisions
 

@@ -32,8 +32,14 @@ guard_function_override aws_auth_login || aws_auth_login() {
   fi
 
   if ! command -v assume >/dev/null 2>&1; then
-    log_error "'assume' (Granted) not found in PATH"
-    log_error "Install: https://docs.commonfate.io/granted/getting-started"
+    if [[ "${AWST_IN_CONTAINER:-0}" == "1" ]]; then
+      log_error "Cannot authenticate from inside the aws-tools container"
+      log_error "Run on your host shell first, then re-run this command:"
+      log_error "  source assume $profile${region:+ -r $region}"
+    else
+      log_error "'assume' (Granted) not found in PATH"
+      log_error "Install: https://docs.commonfate.io/granted/getting-started"
+    fi
     return 1
   fi
 

@@ -69,9 +69,32 @@ at `/work`; container processes run under the host UID/GID via
 `--user $(id -u):$(id -g)`. `HOME=/tmp` is set so on-first-run config
 auto-deploy in `bin/awst` doesn't write into the repo.
 
-`CONTAINERS_PLAN.md` describes the full multi-phase containerization rollout
-(Phase 1: dev image + `task docker:*`; Phase 2: runtime image + host wrapper;
-Phase 3: container-first installer).
+### Container Runtime (Phase 2)
+
+A separate, slim runtime image (`containers/Dockerfile.runtime`) bundles the
+`awst` toolkit with `aws-cli`, `session-manager-plugin`, and `fzf`. End users
+invoke it via `containers/awst-host`, a host-side wrapper that:
+
+- auto-detects `docker` vs `podman` (`AWST_CONTAINER_ENGINE` overrides)
+- bind-mounts `~/.aws`, `~/.granted`, `~/.config/aws-tools`, `~/.cache/aws-tools`
+- runs as host UID/GID (`--user "$(id -u):$(id -g)"`) so file ownership stays sane
+- forwards `AWS_*`, `AWST_*`, `MENU_*`, and terminal env vars
+- defaults to `--network host` and `--pid host` (Linux); override with
+  `AWST_NETWORK=` / `AWST_PID_MODE=` for isolated namespaces
+
+```bash
+task docker:build:runtime
+containers/awst-host --version
+containers/awst-host list
+```
+
+Authentication strategy: user runs `assume` on the host; the container reads
+the cached SSO credentials via the bind-mounted `~/.aws/sso/cache/`. Granted
+itself is **not** installed inside the runtime image.
+
+Phase 2 is opt-in — the existing host install (`install.sh` / `bin/awst`) is
+unchanged. `CONTAINERS_PLAN.md` describes the rollout (Phase 1: dev image;
+Phase 2: runtime image + wrapper; Phase 3: container-first installer).
 
 ### Installation
 ```bash

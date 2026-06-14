@@ -117,6 +117,9 @@ guard_function_override aws_get_all_running_instances || aws_get_all_running_ins
   fi
 
   while read -r instance_id name; do
+    # `<<<""` yields one empty line; skip it so we don't synthesize a phantom
+    # "unnamed " entry when the account/region has no running instances.
+    [[ -z "$instance_id" ]] && continue
     name="${name:-unnamed}"
     INSTANCE_LIST+=( "$name $instance_id" )
   done <<<"$output"

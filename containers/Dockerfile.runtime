@@ -1,0 +1,63 @@
+# syntax=docker/dockerfile:1
+# Runtime image for aws-tools. Designed to be invoked by containers/awst-host,
+# which bind-mounts the host's ~/.aws, ~/.granted, ~/.config/aws-tools, and
+# ~/.cache/aws-tools so SSO/Granted credentials carry into the container.
+FROM debian:stable-slim
+
+ARG TARGETARCH=amd64
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    PATH=/opt/aws-tools/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      bash \
+      ca-certificates \
+      curl \
+      jq \
+      rsync \
+      unzip \
+      fzf \
+      less \
+      procps \
+ && rm -rf /var/lib/apt/lists/*
+
+# AWS CLI v2
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) AWS_ARCH=x86_64 ;; \
+      arm64) AWS_ARCH=aarch64 ;; \
+      *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${AWS_ARCH}.zip" -o /tmp/awscli.zip; \
+    unzip -q /tmp/awscli.zip -d /tmp; \
+    /tmp/aws/install; \
+    rm -rf /tmp/aws /tmp/awscli.zip; \
+    aws --version
+
+# SSM session-manager-plugin
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) SMP_ARCH=ubuntu_64bit ;; \
+      arm64) SMP_ARCH=ubuntu_arm64 ;; \
+      *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/${SMP_ARCH}/session-manager-plugin.deb" \
+      -o /tmp/smp.deb; \
+    dpkg -i /tmp/smp.deb; \
+    rm /tmp/smp.deb
+
+# Toolkit — copy only what's needed at runtime
+COPY bin/awst                 /opt/aws-tools/bin/awst
+COPY lib                      /opt/aws-tools/lib
+COPY examples/commands        /opt/aws-tools/examples/commands
+COPY VERSION                  /opt/aws-tools/VERSION
+COPY containers/entrypoint.sh /usr/local/bin/awst-entrypoint
+RUN chmod +x /opt/aws-tools/bin/awst /usr/local/bin/awst-entrypoint \
+ && mkdir -p /home/awst /home/awst/.aws /home/awst/.config /home/awst/.cache \
+ && chmod 0777 /home/awst /home/awst/.config /home/awst/.cache
+
+ENTRYPOINT ["/usr/local/bin/awst-entrypoint"]
+CMD ["--help"]

@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# Host-side wrapper for the aws-tools runtime container.
+#
+# Usage:
+#   containers/awst-host <awst-args>
+#
+# Detects docker vs podman, bind-mounts the host's AWS/Granted state, and
+# execs `awst` inside the aws-tools:runtime container. Designed for Phase 2
+# dogfooding — Phase 3 will replace bin/awst with this wrapper at install time.
+#
+# Env overrides:
+#   AWST_IMAGE             image:tag                       (default: aws-tools:runtime)
+#   AWST_CONTAINER_ENGINE  docker|podman                   (default: auto-detect)
+#   AWST_NETWORK           docker --network value          (default: host)
+#                          set to empty string to skip --network entirely
+#   AWST_PID_MODE          docker --pid value              (default: host)
+#                          host = `awst list/kill` see host ssm sessions
+#                          set to empty string for isolated PID namespace
+set -euo pipefail
+
+IMAGE="${AWST_IMAGE:-aws-tools:runtime}"
+ENGINE="${AWST_CONTAINER_ENGINE:-}"
+NETWORK_MODE="${AWST_NETWORK-host}"
+PID_MODE="${AWST_PID_MODE-host}"
+
+if [[ -z "$ENGINE" ]]; then
+  if command -v docker >/dev/null 2>&1; then
+    ENGINE=docker
+  elif command -v podman >/dev/null 2>&1; then
+    ENGINE=podman
+  else
+    echo "awst-host: neither docker nor podman found on PATH" >&2
+    exit 127
+  fi
+fi
+
+# SELinux relabel for podman bind mounts
+MOUNT_OPT=""
+if [[ "$ENGINE" == "podman" ]] \
+   && command -v selinuxenabled >/dev/null 2>&1 \
+   && selinuxenabled 2>/dev/null; then
+  MOUNT_OPT=":z"
+fi
+
+# Bind-mount targets must exist on the host before docker can mount them.
+mkdir -p "$HOME/.aws" "$HOME/.config/aws-tools" "$HOME/.cache/aws-tools"
+
+MOUNTS=(
+  -v "$HOME/.aws:/home/awst/.aws${MOUNT_OPT}"
+  -v "$HOME/.config/aws-tools:/home/awst/.config/aws-tools${MOUNT_OPT}"
+  -v "$HOME/.cache/aws-tools:/home/awst/.cache/aws-tools${MOUNT_OPT}"
+)
+# Granted state is optional — only mount if the host has it.
+if [[ -d "$HOME/.granted" ]]; then
+  MOUNTS+=(-v "$HOME/.granted:/home/awst/.granted${MOUNT_OPT}")
+fi
+
+TTY_FLAGS=("-i")
+if [[ -t 0 && -t 1 ]]; then
+  TTY_FLAGS=("-it")
+fi
+
+# Only forward variables that are actually set, so we don't clobber image defaults.
+ENV_PASS=()
+for var in AWS_PROFILE AWS_REGION AWS_DEFAULT_REGION \
+           AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
+           AWS_LOG_LEVEL AWS_LOG_COLOR AWS_LOG_TIMESTAMP AWS_LOG_FILE \
+           MENU_NON_INTERACTIVE MENU_NO_FZF MENU_ASSUME_FIRST \
+           AWST_SSM_CMD_DIR AWST_CMD_DIR AWST_CACHE_TTL \
+           TERM COLORTERM LANG LC_ALL; do
+  if [[ -n "${!var-}" ]]; then
+    ENV_PASS+=("-e" "$var=${!var}")
+  fi
+done
+
+NAMESPACE_ARGS=()
+if [[ -n "$NETWORK_MODE" ]]; then
+  NAMESPACE_ARGS+=(--network "$NETWORK_MODE")
+fi
+if [[ -n "$PID_MODE" ]]; then
+  NAMESPACE_ARGS+=(--pid "$PID_MODE")
+fi
+
+exec "$ENGINE" run --rm "${TTY_FLAGS[@]}" \
+  --user "$(id -u):$(id -g)" \
+  -e "HOME=/home/awst" \
+  "${ENV_PASS[@]}" \
+  "${MOUNTS[@]}" \
+  "${NAMESPACE_ARGS[@]}" \
+  "$IMAGE" "$@"

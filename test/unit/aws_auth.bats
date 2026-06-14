@@ -221,6 +221,23 @@ teardown() {
   assert_output --partial "'assume' (Granted) not found in PATH"
 }
 
+@test "aws_auth_login points to host shell when in container and assume missing" {
+  command() {
+    if [[ "$1" == "-v" && "$2" == "assume" ]]; then
+      return 1
+    fi
+    builtin command "$@"
+  }
+
+  AWST_IN_CONTAINER=1 run aws_auth_login testprofile us-west-2
+
+  assert_failure
+  assert_output --partial "Cannot authenticate from inside the aws-tools container"
+  assert_output --partial "source assume testprofile -r us-west-2"
+  # Should NOT show the install-Granted hint when in container.
+  refute_output --partial "Install: https://docs.commonfate.io"
+}
+
 @test "aws_auth_login succeeds when AWST_AUTH_DISABLE_ASSUME is set" {
   export AWST_AUTH_DISABLE_ASSUME=1
 

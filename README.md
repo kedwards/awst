@@ -470,6 +470,39 @@ The repo is bind-mounted at `/work` and commands run under your host UID/GID,
 so no root-owned files end up in the tree. The dev image is defined in
 `containers/Dockerfile.dev`.
 
+### Running `awst` in a Container (Preview)
+
+A runtime image and host wrapper let you run the full toolkit without installing
+`aws-cli` or `session-manager-plugin` on the host. Currently opt-in — the
+default `install.sh` flow is unchanged.
+
+```bash
+task docker:build:runtime   # build aws-tools:runtime (~520 MB)
+
+# Run any awst command via the wrapper:
+containers/awst-host --version
+containers/awst-host list
+containers/awst-host connect -p prod -r us-east-1
+```
+
+The wrapper:
+- auto-detects `docker` vs `podman` (override with `AWST_CONTAINER_ENGINE=podman`)
+- bind-mounts `~/.aws`, `~/.granted`, `~/.config/aws-tools`, `~/.cache/aws-tools`
+- runs as your host UID/GID, forwards `AWS_PROFILE`/`AWS_REGION`/SSO tokens
+- uses host networking + host PID namespace so port forwarding and
+  `awst list`/`kill` keep working against sessions started outside the container
+
+**Auth model:** run `assume` (Granted) on the *host* first; the container reads
+the cached SSO credentials from the mounted `~/.aws/sso/cache/`. Granted itself
+is not installed inside the runtime image.
+
+**Convenient alias:**
+```bash
+alias awst="$PWD/containers/awst-host"   # or use the absolute install path
+```
+
+See `CONTAINERS_PLAN.md` for the rollout phases.
+
 ### Releases
 
 For maintainers creating releases:

@@ -6,6 +6,7 @@ vars:
   SHELLCHECK: shellcheck
   DOCKER: docker
   DEV_IMAGE: aws-tools:dev
+  RUNTIME_IMAGE: aws-tools:runtime
 
 tasks:
   default:
@@ -112,3 +113,19 @@ tasks:
         -e HOME=/tmp
         -v "$PWD":/work -w /work
         {{.DEV_IMAGE}} bash
+
+  docker:build:runtime:
+    desc: Build the runtime image (slim, used by containers/awst-host)
+    cmds:
+      - >-
+        {{.DOCKER}} build
+        -f containers/Dockerfile.runtime
+        -t {{.RUNTIME_IMAGE}} .
+    sources:
+      - containers/Dockerfile.runtime
+      - containers/entrypoint.sh
+      - bin/awst
+      - VERSION
+      - lib/**/*
+      - examples/commands/**/*
+    method: checksum
