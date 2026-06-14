@@ -50,6 +50,29 @@ shellcheck lib/core/logging.sh
 task ci
 ```
 
+### Container-Based Development (Phase 1)
+
+A `debian:stable-slim` dev image bundles `bats`, `shellcheck`, `shfmt`,
+`task`, `aws-cli` v2, `session-manager-plugin`, `fzf`, and `jq`. Use it
+when the host lacks any of these tools.
+
+```bash
+task docker:build   # build aws-tools:dev (skipped if Dockerfile unchanged)
+task docker:test    # bats test/unit inside the container
+task docker:lint    # shellcheck inside the container
+task docker:ci      # lint + tests inside the container
+task docker:shell   # interactive shell with the repo bind-mounted at /work
+```
+
+The image is defined in `containers/Dockerfile.dev`. The repo is bind-mounted
+at `/work`; container processes run under the host UID/GID via
+`--user $(id -u):$(id -g)`. `HOME=/tmp` is set so on-first-run config
+auto-deploy in `bin/awst` doesn't write into the repo.
+
+`CONTAINERS_PLAN.md` describes the full multi-phase containerization rollout
+(Phase 1: dev image + `task docker:*`; Phase 2: runtime image + host wrapper;
+Phase 3: container-first installer).
+
 ### Installation
 ```bash
 # Install to ~/.local/share/aws-tools with symlinks in ~/.local/bin

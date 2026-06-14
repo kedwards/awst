@@ -51,13 +51,11 @@ guard_function_override aws_codebuild_get_debug_session_target || aws_codebuild_
 
   log_debug "Extracting debug session target from build: $build_id"
 
-  local target
-  target=$(aws codebuild batch-get-builds \
-    --ids "$build_id" \
-    --query 'builds[0].debugSession.sessionTarget' \
-    --output text 2>/dev/null)
+  local builds_json target
+  builds_json=$(aws_codebuild_batch_get_builds "$build_id") || return 1
+  target=$(echo "$builds_json" | jq -r '.builds[0].debugSession.sessionTarget // empty')
 
-  if [[ -z "$target" || "$target" == "None" ]]; then
+  if [[ -z "$target" || "$target" == "null" || "$target" == "None" ]]; then
     log_error "Build $build_id does not have a debug session enabled"
     return 1
   fi

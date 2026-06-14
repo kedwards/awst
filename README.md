@@ -453,6 +453,23 @@ shellcheck lib/core/logging.sh
 task ci
 ```
 
+### Container-Based Development
+
+If Docker (or Podman) is available but you don't want to install `bats`, `task`,
+or `shellcheck` on the host, run the suite inside the dev image:
+
+```bash
+task docker:build   # build aws-tools:dev (debian:stable-slim + tooling)
+task docker:test    # bats test/unit
+task docker:lint    # shellcheck
+task docker:ci      # both
+task docker:shell   # interactive shell with the repo at /work
+```
+
+The repo is bind-mounted at `/work` and commands run under your host UID/GID,
+so no root-owned files end up in the tree. The dev image is defined in
+`containers/Dockerfile.dev`.
+
 ### Releases
 
 For maintainers creating releases:

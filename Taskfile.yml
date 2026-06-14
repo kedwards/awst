@@ -4,6 +4,8 @@ version: "3"
 vars:
   BATS: bats
   SHELLCHECK: shellcheck
+  DOCKER: docker
+  DEV_IMAGE: aws-tools:dev
 
 tasks:
   default:
@@ -58,3 +60,55 @@ tasks:
     desc: Create a release (interactive)
     cmds:
       - ./scripts/release.sh
+
+  docker:build:
+    desc: Build the dev image (skipped if Dockerfile unchanged)
+    cmds:
+      - "{{.DOCKER}} build -f containers/Dockerfile.dev -t {{.DEV_IMAGE}} ."
+    sources:
+      - containers/Dockerfile.dev
+    method: checksum
+
+  docker:test:
+    desc: Run unit tests inside the dev image
+    deps: [docker:build]
+    cmds:
+      - >-
+        {{.DOCKER}} run --rm
+        --user $(id -u):$(id -g)
+        -e HOME=/tmp
+        -v "$PWD":/work -w /work
+        {{.DEV_IMAGE}} task test
+
+  docker:lint:
+    desc: Run shellcheck inside the dev image
+    deps: [docker:build]
+    cmds:
+      - >-
+        {{.DOCKER}} run --rm
+        --user $(id -u):$(id -g)
+        -e HOME=/tmp
+        -v "$PWD":/work -w /work
+        {{.DEV_IMAGE}} task lint
+
+  docker:ci:
+    desc: Run lint + unit tests inside the dev image
+    deps: [docker:build]
+    cmds:
+      - >-
+        {{.DOCKER}} run --rm
+        --user $(id -u):$(id -g)
+        -e HOME=/tmp
+        -v "$PWD":/work -w /work
+        {{.DEV_IMAGE}} task ci
+
+  docker:shell:
+    desc: Interactive shell in the dev image (repo at /work)
+    deps: [docker:build]
+    cmds:
+      - >-
+        {{.DOCKER}} run --rm -it
+        --user $(id -u):$(id -g)
+        -e HOME=/tmp
+        -v "$PWD":/work -w /work
+        {{.DEV_IMAGE}} bash
