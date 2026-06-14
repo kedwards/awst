@@ -177,3 +177,18 @@ EOF
   assert_output --partial "Connecting to CodeBuild build: build-1"
 }
 
+@test "codebuild list builds disables pagination when sorting descending" {
+  aws() {
+    local args="$*"
+    [[ "$args" == *"codebuild list-builds-for-project"* ]] || return 1
+    [[ "$args" == *"--no-paginate"* ]] || return 1
+    [[ "$args" == *"--sort-order DESCENDING"* ]] || return 1
+    echo '["build-1"]'
+  }
+
+  run aws_codebuild_list_builds "DatabaseBaseline"
+
+  assert_success
+  assert_output '["build-1"]'
+}
+

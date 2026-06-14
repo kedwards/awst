@@ -14,6 +14,7 @@ guard_function_override aws_codebuild_list_builds || aws_codebuild_list_builds()
 
   aws codebuild list-builds-for-project \
     --project-name "$project_name" \
+    --no-paginate \
     --sort-order DESCENDING \
     --query 'ids' \
     --output json 2>/dev/null || {
