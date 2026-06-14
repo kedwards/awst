@@ -126,14 +126,12 @@ fi
 info "Updating VERSION file..."
 echo "$NEW_VERSION" > "$VERSION_FILE"
 
-# Run tests
-info "Running tests..."
-if command -v task >/dev/null 2>&1; then
-  if ! task ci; then
-    warn "Tests failed but continuing with release (fixing tmpdir bug)"
-  fi
-else
-  warn "task command not found, skipping tests"
+# Run tests inside the dev image so the release gate matches CI exactly
+# and doesn't depend on bats/shellcheck being installed on the host.
+info "Running tests (task docker:ci)..."
+command -v task >/dev/null 2>&1 || error "task is required (install go-task: https://taskfile.dev)"
+if ! task docker:ci; then
+  error "Tests failed - aborting release. Fix the failures and re-run."
 fi
 
 # Commit version bump
