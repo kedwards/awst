@@ -65,9 +65,9 @@ tasks:
   docker:build:
     desc: Build the dev image (skipped if Dockerfile unchanged)
     cmds:
-      - "{{.DOCKER}} build -f containers/Dockerfile.dev -t {{.DEV_IMAGE}} ."
+      - "{{.DOCKER}} build --target dev -f containers/Dockerfile -t {{.DEV_IMAGE}} ."
     sources:
-      - containers/Dockerfile.dev
+      - containers/Dockerfile
     method: checksum
 
   docker:test:
@@ -119,10 +119,11 @@ tasks:
     cmds:
       - >-
         {{.DOCKER}} build
-        -f containers/Dockerfile.runtime
+        --target runtime
+        -f containers/Dockerfile
         -t {{.RUNTIME_IMAGE}} .
     sources:
-      - containers/Dockerfile.runtime
+      - containers/Dockerfile
       - containers/entrypoint.sh
       - bin/awst
       - VERSION
