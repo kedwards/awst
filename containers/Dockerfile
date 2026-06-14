@@ -33,22 +33,24 @@ RUN apt-get update \
       curl \
       jq \
       rsync \
-      unzip \
       fzf \
-      less \
  && rm -rf /var/lib/apt/lists/*
 
-# AWS CLI v2
+# AWS CLI v2 - install unzip only for the duration of this layer so it never
+# lands in any committed image (saves ~700 KB across base and downstream stages).
 RUN set -eux; \
     case "${TARGETARCH}" in \
       amd64) AWS_ARCH=x86_64 ;; \
       arm64) AWS_ARCH=aarch64 ;; \
       *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends unzip; \
     curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${AWS_ARCH}.zip" -o /tmp/awscli.zip; \
     unzip -q /tmp/awscli.zip -d /tmp; \
     /tmp/aws/install; \
-    rm -rf /tmp/aws /tmp/awscli.zip; \
+    apt-get purge -y --auto-remove unzip; \
+    rm -rf /tmp/aws /tmp/awscli.zip /var/lib/apt/lists/*; \
     aws --version
 
 # SSM session-manager-plugin
@@ -73,6 +75,7 @@ ARG TARGETARCH
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       git \
+      less \
       make \
       bats \
       shellcheck \
@@ -100,7 +103,12 @@ CMD ["bash"]
 # carry into the container. This is the default target.
 FROM base AS runtime
 
-ENV PATH=/opt/aws-tools/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+# AWS_PAGER="" disables the AWS CLI's default `less`-based pager. `less` is not
+# installed in this stage; without this, an interactive `aws ...` invocation
+# would try to spawn the missing pager. procps stays - awst list / awst kill
+# call `ps eww aux` to find session-manager-plugin processes.
+ENV PATH=/opt/aws-tools/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin \
+    AWS_PAGER=""
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
