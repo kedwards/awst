@@ -145,6 +145,12 @@ EOF
   printf '%s\n' "$VERSION" >"${INSTALL_DIR}/VERSION"
   printf '%s\n' "container" >"${INSTALL_DIR}/.mode"
 
+  # First-run: ensure the user's config dirs exist so the entrypoint can
+  # populate them when the container starts.
+  mkdir -p "${USER_HOME}/.config/aws-tools/commands/aws" \
+           "${USER_HOME}/.config/aws-tools/commands/ssm" \
+           "${USER_HOME}/.cache/aws-tools"
+
   ln -sf "${INSTALL_DIR}/bin/awst" "${BIN_DIR}/awst"
 
   cat <<EOF

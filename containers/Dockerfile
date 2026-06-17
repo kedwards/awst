@@ -118,11 +118,16 @@ RUN apt-get update \
 COPY bin/awst                 /opt/aws-tools/bin/awst
 COPY lib                      /opt/aws-tools/lib
 COPY examples/commands        /opt/aws-tools/examples/commands
+COPY examples/connections.config /opt/aws-tools/examples/connections.config
 COPY VERSION                  /opt/aws-tools/VERSION
 COPY containers/entrypoint.sh /usr/local/bin/awst-entrypoint
 RUN chmod +x /opt/aws-tools/bin/awst /usr/local/bin/awst-entrypoint \
  && mkdir -p /home/awst /home/awst/.aws /home/awst/.config /home/awst/.cache \
- && chmod 0777 /home/awst /home/awst/.config /home/awst/.cache
+ && chmod 0777 /home/awst /home/awst/.config /home/awst/.cache \
+ && mkdir -p /opt/aws-tools/commands/aws /opt/aws-tools/commands/ssm \
+ && cp -r /opt/aws-tools/examples/commands/aws/* /opt/aws-tools/commands/aws/ 2>/dev/null || true \
+ && cp -r /opt/aws-tools/examples/commands/ssm/* /opt/aws-tools/commands/ssm/ 2>/dev/null || true \
+ && cp /opt/aws-tools/examples/connections.config /opt/aws-tools/connections.config 2>/dev/null || true
 
 ENTRYPOINT ["/usr/local/bin/awst-entrypoint"]
 CMD ["--help"]

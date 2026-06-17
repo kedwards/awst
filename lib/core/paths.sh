@@ -33,7 +33,7 @@ _AWST_RESOLVE_USER_HOME() {
 }
 
 AWST_USER_HOME="${AWST_USER_HOME:-$(_AWST_RESOLVE_USER_HOME)}"
-AWST_INSTALL_DIR="${AWST_USER_HOME}/.local/share/aws-tools"
+AWST_INSTALL_DIR="${AWST_INSTALL_DIR:-${AWST_USER_HOME}/.local/share/aws-tools}"
 AWST_CONFIG_DIR="${AWST_USER_HOME}/.config/aws-tools"
 AWST_CACHE_DIR="${AWST_USER_HOME}/.cache/aws-tools"
 AWST_BIN_DIR="${AWST_USER_HOME}/.local/bin"
