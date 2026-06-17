@@ -137,9 +137,7 @@ fi
 # Commit version bump
 info "Committing version bump..."
 git add "$VERSION_FILE"
-git commit -m "chore: bump version to $NEW_VERSION
-
-Co-Authored-By: Warp <agent@warp.dev>"
+git commit -m "chore: bump version to $NEW_VERSION"
 
 # Create and push tag
 info "Creating tag $TAG_NAME..."
