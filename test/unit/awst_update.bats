@@ -19,7 +19,10 @@ setup() {
   export FAKE_HOME="$(mktemp -d)"
   export HOME="$FAKE_HOME"
   export INSTALL_DIR="${HOME}/.local/share/aws-tools"
-  
+
+  # Stub the user-home resolver so it doesn't bypass our fake HOME
+  awst_resolve_user_home() { printf '%s\n' "$FAKE_HOME"; }
+
   # Source the update command
   source ./lib/commands/awst_update.sh
 }

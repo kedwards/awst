@@ -107,19 +107,19 @@ awst_connect_config_mode() {
     return 1
   fi
 
-  local default_config="$HOME/.local/share/aws-tools/connections.config"
-  local user_config="$HOME/.config/aws-tools/connections.user.config"
+  local default_config="${AWST_CONN_BASE:-}"
+  local user_config="${AWST_CONN_USER:-}"
   local custom_config="${CONFIG_FILE:-}"
 
   # Collect all config files that exist
   local config_files=()
-  [[ -f "$default_config" ]] && config_files+=("$default_config")
-  [[ -f "$user_config" ]] && config_files+=("$user_config")
+  [[ -n "$default_config" && -f "$default_config" ]] && config_files+=("$default_config")
+  [[ -n "$user_config" && -f "$user_config" ]] && config_files+=("$user_config")
   [[ -n "$custom_config" && -f "$custom_config" ]] && config_files+=("$custom_config")
 
   if (( ${#config_files[@]} == 0 )); then
     log_error "No connection config files found"
-    log_error "Checked: $default_config, $user_config"
+    log_error "Checked: ${default_config:-<not set>}, ${user_config:-<not set>}"
     return 1
   fi
 

@@ -21,6 +21,30 @@ Options:
   -h, --help    Show this help message
 EOF
 }
+awst_resolve_user_home() {
+  local target_user home
+  target_user="${SUDO_USER:-$(id -un)}"
+  home=""
+
+  if command -v getent >/dev/null 2>&1; then
+    home="$(getent passwd "$target_user" | cut -d: -f6 || true)"
+  fi
+
+  if [[ -z "$home" && -r /etc/passwd ]]; then
+    home="$(awk -F: -v user="$target_user" '$1 == user { print $6; exit }' /etc/passwd)"
+  fi
+
+  if [[ -z "$home" && "$target_user" == "$(id -un)" ]]; then
+    home="${HOME:-}"
+  fi
+
+  if [[ -z "$home" ]]; then
+    echo "[ERROR] Unable to determine home directory for user: ${target_user}" >&2
+    return 1
+  fi
+
+  printf '%s\n' "$home"
+}
 
 awst_update() {
   if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
@@ -30,7 +54,9 @@ awst_update() {
 
   local REPO_NAME="aws-tools"
   local REPO="kedwards/${REPO_NAME}"
-  local INSTALL_DIR="${HOME}/.local/share/${REPO_NAME}"
+  local USER_HOME
+  USER_HOME="$(awst_resolve_user_home)" || return 1
+  local INSTALL_DIR="${USER_HOME}/.local/share/${REPO_NAME}"
   local REPO_URL="https://github.com/${REPO}"
   local VERSION="${1:-latest}"
 
@@ -105,13 +131,11 @@ awst_update() {
     return 1
   fi
 
-  # Deploy new default commands to user config directory (preserve existing)
-  local CONFIG_DIR="${HOME}/.config/${REPO_NAME}"
+  # Ship default commands into the install dir (base, not user config).
   if [[ -d "${INSTALL_DIR}/examples/commands" ]]; then
-    log_info "Deploying new default commands..."
-    mkdir -p "${CONFIG_DIR}/commands/aws" "${CONFIG_DIR}/commands/ssm"
-    rsync -a --ignore-existing "${INSTALL_DIR}/examples/commands/aws/" "${CONFIG_DIR}/commands/aws/"
-    rsync -a --ignore-existing "${INSTALL_DIR}/examples/commands/ssm/" "${CONFIG_DIR}/commands/ssm/"
+    mkdir -p "${INSTALL_DIR}/commands/aws" "${INSTALL_DIR}/commands/ssm"
+    rsync -a --ignore-existing "${INSTALL_DIR}/examples/commands/aws/" "${INSTALL_DIR}/commands/aws/"
+    rsync -a --ignore-existing "${INSTALL_DIR}/examples/commands/ssm/" "${INSTALL_DIR}/commands/ssm/"
   else
     log_warn "examples/commands not found, default commands may be outdated"
   fi
@@ -123,10 +147,6 @@ awst_update() {
   else
     log_warn "examples/connections.config not found, default connections may be outdated"
   fi
-
-  log_info "Commands directory: ${CONFIG_DIR}/commands/"
-  log_info "Default connections updated in ${INSTALL_DIR}/connections.config"
-  log_info "User custom connections preserved in ~/.config/${REPO_NAME}/connections.user.config"
 
   # Show new version
   local NEW_VERSION

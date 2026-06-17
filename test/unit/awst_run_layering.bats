@@ -3,7 +3,7 @@
 # Tests for awst run command directory resolution and overrides.
 #
 # The directory rules under test:
-#   1. Default dir  (~/.config/aws-tools/commands/aws) is the standard location
+#   1. Default dir  (AWST_RUN_CMD_BASE / AWST_RUN_CMD_USER) is the standard location
 #   2. -d <path>    is an exclusive override — default dir is ignored
 #   3. AWST_CMD_DIR is an exclusive override — default dir is ignored
 
@@ -31,10 +31,12 @@ setup() {
   aws_auth_login() { echo "LOGIN: $1 $2"; return 0; }
   aws_list_profiles() { printf '%s\n' "dev" "prod"; }
 
-  source ./lib/commands/awst_run.sh
+  # Pre-set the fallback variables so awst_run.sh picks them up
+  export _AWST_RUN_CMD_DIR="$HOME/.config/aws-tools/commands/aws"
+  export AWST_RUN_CMD_BASE="$_AWST_RUN_CMD_DIR"
+  export AWST_RUN_CMD_USER="$_AWST_RUN_CMD_DIR"
 
-  # Export computed dir path so subshells spawned by `run` can see it
-  export _AWST_RUN_CMD_DIR
+  source ./lib/commands/awst_run.sh
 }
 
 teardown() {

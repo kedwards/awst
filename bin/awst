@@ -8,23 +8,11 @@ ROOT_DIR="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
 # Version info
 VERSION="$(cat "$ROOT_DIR/VERSION" 2>/dev/null || echo 'dev')"
 
-# Auto-deploy commands to ~/.config if missing (handles upgrade from older versions)
-_AWST_CONFIG_DIR="${HOME}/.config/aws-tools"
-if [[ -d "$ROOT_DIR/examples/commands" && ! -d "$_AWST_CONFIG_DIR/commands/aws" ]]; then
-  mkdir -p "$_AWST_CONFIG_DIR/commands/aws" "$_AWST_CONFIG_DIR/commands/ssm"
-  command -v rsync >/dev/null 2>&1 && {
-    rsync -a "$ROOT_DIR/examples/commands/aws/" "$_AWST_CONFIG_DIR/commands/aws/"
-    rsync -a "$ROOT_DIR/examples/commands/ssm/" "$_AWST_CONFIG_DIR/commands/ssm/"
-  } || {
-    cp -a "$ROOT_DIR/examples/commands/aws/"* "$_AWST_CONFIG_DIR/commands/aws/"
-    cp -a "$ROOT_DIR/examples/commands/ssm/"* "$_AWST_CONFIG_DIR/commands/ssm/"
-  }
-fi
-
 # Core
 source "$ROOT_DIR/lib/core/logging.sh"
 source "$ROOT_DIR/lib/core/flags.sh"
 source "$ROOT_DIR/lib/core/tty.sh"
+source "$ROOT_DIR/lib/core/paths.sh"
 
 # Menu
 source "$ROOT_DIR/lib/menu/index.sh"

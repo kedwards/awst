@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
+# Run commands against AWS profiles.
+#
+# Directory resolution (ascending priority):
+#   1. AWST_RUN_CMD_BASE   (shipped defaults, requires paths.sh sourced)
+#   2. AWST_RUN_CMD_USER   (per-user customizations)
+#   3. -d or AWST_CMD_DIR  (exclusive override, replaces both base + user)
 
-# Default commands/aws directory (deployed by install.sh / update.sh from examples/commands/aws/)
+# Fallback for tests that source this file without paths.sh.
 _AWST_RUN_CMD_DIR="${HOME}/.config/aws-tools/commands/aws"
+AWST_RUN_CMD_BASE="${AWST_RUN_CMD_BASE:-$_AWST_RUN_CMD_DIR}"
+AWST_RUN_CMD_USER="${AWST_RUN_CMD_USER:-$_AWST_RUN_CMD_DIR}"
 
 awst_run_usage() {
   cat <<EOF
@@ -111,8 +119,8 @@ awst_run() {
   set -- "${positionals[@]+${positionals[@]}}"
 
   # Build the list of command directories to search.
-  # -d flag or AWST_CMD_DIR override: use only that directory.
-  # Otherwise: use the default config directory.
+  # -d flag or AWST_CMD_DIR override: use only that directory (exclusive).
+  # Otherwise: merge base (shipped) + user (customizations).
   local -a cmd_dirs=()
   if [[ -n "$custom_dir" ]]; then
     if [[ ! -d "$custom_dir" ]]; then
@@ -127,7 +135,8 @@ awst_run() {
     fi
     cmd_dirs=("$AWST_CMD_DIR")
   else
-    [[ -d "$_AWST_RUN_CMD_DIR" ]] && cmd_dirs+=("$_AWST_RUN_CMD_DIR")
+    [[ -n "${AWST_RUN_CMD_BASE:-}" && -d "$AWST_RUN_CMD_BASE" ]] && cmd_dirs+=("$AWST_RUN_CMD_BASE")
+    [[ -n "${AWST_RUN_CMD_USER:-}" && -d "$AWST_RUN_CMD_USER" ]] && cmd_dirs+=("$AWST_RUN_CMD_USER")
   fi
 
   # Quick query — treat as an inline command (supports optional filter)
@@ -139,7 +148,7 @@ awst_run() {
   if [[ -z "${1:-}" ]]; then
     if [[ ${#cmd_dirs[@]} -eq 0 ]]; then
       log_error "No commands directories found."
-      log_error "Expected: $_AWST_RUN_CMD_DIR"
+      log_error "Expected: ${AWST_RUN_CMD_BASE:-<not set>}, ${AWST_RUN_CMD_USER:-<not set>}"
       log_error "Set AWST_CMD_DIR or use -d <path>"
       return 1
     fi

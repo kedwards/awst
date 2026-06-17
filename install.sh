@@ -22,8 +22,35 @@ REPO_NAME="aws-tools"
 REPO="kedwards/${REPO_NAME}"
 REPO_URL="https://github.com/${REPO}"
 IMAGE_REPO="ghcr.io/${REPO}"
-INSTALL_DIR="${HOME}/.local/share/${REPO_NAME}"
-BIN_DIR="${HOME}/.local/bin"
+
+resolve_user_home() {
+  local target_user home
+  target_user="${SUDO_USER:-$(id -un)}"
+  home=""
+
+  if command -v getent >/dev/null 2>&1; then
+    home="$(getent passwd "$target_user" | cut -d: -f6 || true)"
+  fi
+
+  if [[ -z "$home" && -r /etc/passwd ]]; then
+    home="$(awk -F: -v user="$target_user" '$1 == user { print $6; exit }' /etc/passwd)"
+  fi
+
+  if [[ -z "$home" && "$target_user" == "$(id -un)" ]]; then
+    home="${HOME:-}"
+  fi
+
+  if [[ -z "$home" ]]; then
+    echo "[ERROR] Unable to determine home directory for user: ${target_user}" >&2
+    exit 1
+  fi
+
+  printf '%s\n' "$home"
+}
+
+USER_HOME="$(resolve_user_home)"
+INSTALL_DIR="${USER_HOME}/.local/share/${REPO_NAME}"
+BIN_DIR="${USER_HOME}/.local/bin"
 ETC_DIR="${INSTALL_DIR}/etc"
 ENV_FILE="${ETC_DIR}/awst.env"
 
@@ -165,17 +192,16 @@ install_host() {
   echo "[INFO] Copying files..."
   rsync -a --delete "${extracted_dir}/" "${INSTALL_DIR}/"
 
+  # Ship default commands into the install dir (base, not user config).
+  if [[ -d "${INSTALL_DIR}/examples/commands" ]]; then
+    mkdir -p "${INSTALL_DIR}/commands/aws" "${INSTALL_DIR}/commands/ssm"
+    rsync -a "${INSTALL_DIR}/examples/commands/aws/" "${INSTALL_DIR}/commands/aws/"
+    rsync -a "${INSTALL_DIR}/examples/commands/ssm/" "${INSTALL_DIR}/commands/ssm/"
+  fi
+
   if [[ -f "${INSTALL_DIR}/examples/connections.config" ]]; then
     echo "[INFO] Installing default connections..."
     cp "${INSTALL_DIR}/examples/connections.config" "${INSTALL_DIR}/connections.config"
-  fi
-
-  local config_dir="${HOME}/.config/${REPO_NAME}"
-  if [[ -d "${INSTALL_DIR}/examples/commands" ]]; then
-    echo "[INFO] Installing default commands to ${config_dir}/commands/..."
-    mkdir -p "${config_dir}/commands/aws" "${config_dir}/commands/ssm"
-    rsync -a "${INSTALL_DIR}/examples/commands/aws/" "${config_dir}/commands/aws/"
-    rsync -a "${INSTALL_DIR}/examples/commands/ssm/" "${config_dir}/commands/ssm/"
   fi
 
   echo "[INFO] Creating symlinks in ${BIN_DIR}"

@@ -2,87 +2,104 @@
 
 awst_config_usage() {
   cat <<EOF
-Usage: awst config
+Usage: awst config [--verbose]
 
-Display current aws-tools configuration including file paths,
-directories, and environment variables.
+Display current aws-tools configuration.
+
+Options:
+  --verbose    Show all environment variables and internal settings
+  -h, --help   Show this help message
 EOF
 }
 
 awst_config() {
-  if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  local verbose=false
+  if [[ "${1:-}" == "--verbose" || "${1:-}" == "-v" ]]; then
+    verbose=true
+  elif [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
     awst_config_usage
     return 0
   fi
 
-  local install_dir="$HOME/.local/share/aws-tools"
-  local config_dir="$HOME/.config/aws-tools"
-  local cache_dir="$HOME/.cache/aws-tools"
-  local bin_dir="$HOME/.local/bin"
+  local install_dir="${AWST_INSTALL_DIR:-$HOME/.local/share/aws-tools}"
+  local config_dir="${AWST_CONFIG_DIR:-$HOME/.config/aws-tools}"
+  local bin_dir="${AWST_BIN_DIR:-$HOME/.local/bin}"
 
   echo "aws-tools v${VERSION:-unknown}"
   echo ""
 
-  # ── Installation ──
-  echo "Installation"
-  _config_path "  Install dir" "$install_dir"
-  _config_path "  Binary dir" "$bin_dir"
-  _config_path "  User config dir" "$config_dir"
-  _config_path "  Cache dir" "$cache_dir"
+  # ── Config Domains ──
+  echo "SSM Commands (awst exec)"
+  _config_path "  Base" "${AWST_SSM_CMD_BASE:-$install_dir/commands/ssm}"
+  _config_path "  User" "${AWST_SSM_CMD_USER:-$config_dir/commands/ssm}"
+  _config_var  "  Override" "AWST_SSM_CMD_DIR" "(none)"
   echo ""
 
-  # ── Connection configs ──
-  echo "Connection Configs"
-  _config_path "  Default" "$install_dir/connections.config"
-  _config_path "  User" "$config_dir/connections.user.config"
+  echo "AWS Commands (awst run)"
+  _config_path "  Base" "${AWST_RUN_CMD_BASE:-$install_dir/commands/aws}"
+  _config_path "  User" "${AWST_RUN_CMD_USER:-$config_dir/commands/aws}"
+  _config_var  "  Override" "AWST_CMD_DIR" "(none)"
   echo ""
 
-  # ── Commands directories ──
-  echo "SSM Commands (ssm exec)"
-  _config_path "  Installed" "$install_dir/commands/ssm"
-  _config_path "  User" "$config_dir/commands/ssm"
-  _config_var  "  Custom dir" "AWST_SSM_CMD_DIR"
+  echo "Connections (awst connect --config)"
+  _config_path "  Base" "${AWST_CONN_BASE:-$install_dir/connections.config}"
+  _config_path "  User" "${AWST_CONN_USER:-$config_dir/connections.user.config}"
   echo ""
 
-  echo "AWS Commands (ssm run)"
-  _config_path "  Installed" "$install_dir/commands/aws"
-  _config_path "  User" "$config_dir/commands/aws"
-  _config_var  "  Custom dir" "AWST_CMD_DIR"
-  echo ""
-
-  # ── AWS ──
+  # ── AWS Auth ──
   echo "AWS"
   _config_path "  Config file" "$HOME/.aws/config"
   _config_show "  Profile" "${AWS_PROFILE:-}" "(not set)"
   _config_show "  Region" "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" "(not set)"
   echo ""
 
-  # ── Environment variables ──
-  echo "Environment Variables"
-  echo "  Logging:"
-  _config_var "    AWS_LOG_LEVEL" "AWS_LOG_LEVEL" "INFO"
-  _config_var "    AWS_LOG_COLOR" "AWS_LOG_COLOR" "1"
-  _config_var "    AWS_LOG_TIMESTAMP" "AWS_LOG_TIMESTAMP" "1"
-  _config_var "    AWS_LOG_FILE" "AWS_LOG_FILE" "(disabled)"
-  _config_var "    AWS_LOG_FILE_MAX_SIZE" "AWS_LOG_FILE_MAX_SIZE" "1048576"
-  _config_var "    AWS_LOG_FILE_ROTATE" "AWS_LOG_FILE_ROTATE" "5"
-  echo "  Auth:"
-  _config_var "    AWS_AUTH_AUTO_LOGIN" "AWS_AUTH_AUTO_LOGIN" "0"
-  echo "  Menu:"
-  _config_var "    MENU_NO_FZF" "MENU_NO_FZF" "0"
-  _config_var "    MENU_NON_INTERACTIVE" "MENU_NON_INTERACTIVE" "0"
-  _config_var "    MENU_ASSUME_FIRST" "MENU_ASSUME_FIRST" "0"
-  echo "  Cache:"
-  _config_var "    AWST_CACHE_TTL" "AWST_CACHE_TTL" "30"
-
   # ── Dependencies ──
-  echo ""
   echo "Dependencies"
   _config_dep "  aws" "required"
   _config_dep "  assume" "required"
   _config_dep "  rsync" "required"
   _config_dep "  fzf" "optional"
-  _config_dep "  shellcheck" "optional"
+
+  # ── Verbose mode ──
+  if $verbose; then
+    echo ""
+    echo "─────────────────────────────────────────────────────────"
+    echo "Environment Variables (verbose)"
+    echo "─────────────────────────────────────────────────────────"
+    echo ""
+    echo "Installation:"
+    _config_var "  Install dir" "AWST_INSTALL_DIR" ""
+    _config_var "  Config dir" "AWST_CONFIG_DIR" ""
+    _config_var "  Bin dir" "AWST_BIN_DIR" ""
+    echo ""
+    echo "Logging:"
+    _config_var "  AWS_LOG_LEVEL" "AWS_LOG_LEVEL" "INFO"
+    _config_var "  AWS_LOG_COLOR" "AWS_LOG_COLOR" "1"
+    _config_var "  AWS_LOG_TIMESTAMP" "AWS_LOG_TIMESTAMP" "1"
+    _config_var "  AWS_LOG_FILE" "AWS_LOG_FILE" "(disabled)"
+    _config_var "  AWS_LOG_FILE_MAX_SIZE" "AWS_LOG_FILE_MAX_SIZE" "1048576"
+    _config_var "  AWS_LOG_FILE_ROTATE" "AWS_LOG_FILE_ROTATE" "5"
+    echo ""
+    echo "Auth:"
+    _config_var "  AWS_AUTH_AUTO_LOGIN" "AWS_AUTH_AUTO_LOGIN" "0"
+    echo ""
+    echo "Menu:"
+    _config_var "  MENU_NO_FZF" "MENU_NO_FZF" "0"
+    _config_var "  MENU_NON_INTERACTIVE" "MENU_NON_INTERACTIVE" "0"
+    _config_var "  MENU_ASSUME_FIRST" "MENU_ASSUME_FIRST" "0"
+    echo ""
+    echo "Cache:"
+    _config_var "  AWST_CACHE_TTL" "AWST_CACHE_TTL" "30"
+    _config_var "  AWST_AUTH_DISABLE_ASSUME" "AWST_AUTH_DISABLE_ASSUME" "0"
+    echo ""
+    echo "Paths:"
+    _config_var "  AWST_SSM_CMD_BASE" "AWST_SSM_CMD_BASE" ""
+    _config_var "  AWST_SSM_CMD_USER" "AWST_SSM_CMD_USER" ""
+    _config_var "  AWST_RUN_CMD_BASE" "AWST_RUN_CMD_BASE" ""
+    _config_var "  AWST_RUN_CMD_USER" "AWST_RUN_CMD_USER" ""
+    _config_var "  AWST_CONN_BASE" "AWST_CONN_BASE" ""
+    _config_var "  AWST_CONN_USER" "AWST_CONN_USER" ""
+  fi
 }
 
 # ── Helpers ──

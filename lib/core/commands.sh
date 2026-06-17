@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 
-# Default commands/ssm directory (deployed by install.sh / update.sh from examples/commands/ssm/)
+# Paths for base (shipped defaults) and user (customizations) SSM command dirs.
+# If paths.sh is sourced, AWST_SSM_CMD_BASE / AWST_SSM_CMD_USER will be set.
+# Otherwise, fall back to the historical defaults so standalone tests still pass.
+#
+# Load order: base -> user -> env override (AWST_SSM_CMD_DIR, exclusive)
 _AWST_SSM_CMD_DIR="${HOME}/.config/aws-tools/commands/ssm"
+AWST_SSM_CMD_BASE="${AWST_SSM_CMD_BASE:-$_AWST_SSM_CMD_DIR}"
+AWST_SSM_CMD_USER="${AWST_SSM_CMD_USER:-$_AWST_SSM_CMD_DIR}"
 
 # Global arrays to store loaded commands
 COMMAND_NAMES=()
@@ -80,9 +86,14 @@ awst_load_ssm_commands() {
     done
   }
 
-  # Load commands from config directory (and optional custom override)
-  _load_from_dir "$_AWST_SSM_CMD_DIR"
-  [[ -n "$custom_dir" && -d "$custom_dir" ]] && _load_from_dir "$custom_dir"
+  # Exclusive env var override skips base + user merge
+  if [[ -n "$custom_dir" && -d "$custom_dir" ]]; then
+    _load_from_dir "$custom_dir"
+  else
+    # Default merge: base (shipped) -> user (customizations)
+    [[ -n "${AWST_SSM_CMD_BASE:-}" ]] && _load_from_dir "$AWST_SSM_CMD_BASE"
+    [[ -n "${AWST_SSM_CMD_USER:-}" ]] && _load_from_dir "$AWST_SSM_CMD_USER"
+  fi
 
   # Return success if any commands were loaded
   (( ${#COMMAND_NAMES[@]} > 0 ))
