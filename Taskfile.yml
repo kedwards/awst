@@ -35,6 +35,30 @@ tasks:
     deps:
       - lint
       - test
+      - go:test
+      - go:acceptance
+
+  go:build:
+    desc: Build the Go binary to dist/awst
+    cmds:
+      - go build -o dist/awst ./
+    sources:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - dist/awst
+
+  go:test:
+    desc: Run Go unit tests
+    cmds:
+      - go test ./...
+
+  go:acceptance:
+    desc: Smoke-test the built binary against fixture creds dirs
+    deps: [go:build]
+    cmds:
+      - bash test/acceptance/creds.sh
 
   version:
     desc: Show current version

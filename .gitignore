@@ -26,3 +26,4 @@
 
 # go-task checksum cache (used by docker:* tasks)
 .task/
+/dist/
