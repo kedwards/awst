@@ -30,6 +30,7 @@ tasks:
       - bash test/acceptance/creds.sh
       - bash test/acceptance/login.sh
       - bash test/acceptance/connect.sh
+      - bash test/acceptance/sessions.sh
 
   ci:
     desc: Run all checks (CI)

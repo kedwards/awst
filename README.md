@@ -4,9 +4,9 @@ CLI for AWS shell + session work. A Go rewrite of the original Bash
 toolkit (see branch `main`); the port lives on branch `go-port` while
 commands are migrated one vertical slice at a time.
 
-**Status:** slices 1–3 — `awst creds` + `awst login` + `awst connect`.
-Other commands (`exec`, `run`, `list`, `kill`, `config`, `update`) still
-live in the bash toolkit on `main`.
+**Status:** slices 1–4 — `awst creds` + `awst login` + `awst connect`
++ `awst list`/`kill`. Other commands (`exec`, `run`, `config`, `update`)
+still live in the bash toolkit on `main`.
 
 ## Why a Go port
 
@@ -140,6 +140,25 @@ Out of scope for this slice (still in the bash `awst connect` on
 - `--codebuild` debug-session attachment
 - Interactive TUI picker (use `fzf`-style external piping for now)
 
+### `awst list` and `awst kill`
+
+Inspect and terminate SSM sessions running on this host. `list` reads
+`/proc` for `session-manager-plugin` processes and pulls
+region / profile / target from their argv — no AWS calls needed.
+
+```sh
+awst list                       # show active sessions
+awst kill 12345                 # terminate one session by PID
+awst kill 12345 67890           # terminate several
+awst kill --all                 # terminate every active SSM session
+```
+
+Each kill does `SIGTERM`, waits 250ms, then escalates to `SIGKILL` if
+the process is still alive.
+
+Linux-only for now (reads `/proc`). macOS support lands when someone
+needs it.
+
 ## Development
 
 TDD discipline: each package has tests in the same directory, written
@@ -154,13 +173,15 @@ task ci                 # both of the above
 Layout:
 
 ```
-cmd/                cobra commands (root, creds, login, connect)
+cmd/                cobra commands (root, creds, login, connect, list, kill)
 internal/paths/     XDG / AWST_CREDS_DIR + SSO cache dir resolution
 internal/creds/     store (file I/O), exporter (eval output), resolver (SDK)
 internal/sso/       config (sso_session lookup), cache (token write),
                     login (device-flow orchestration)
 internal/connect/   describe (EC2/SSM cross-join + Name resolution),
                     session (StartSession + plugin exec)
+internal/sessions/  /proc-scan for active session-manager-plugin
+                    processes (powers `awst list` / `awst kill`)
 test/acceptance/    no-AWS smoke that pins the eval-able output contract
 ```
 
@@ -183,9 +204,9 @@ Extract a shared package only when a second slice forces it.
 - [x] `awst creds {store,use,list,clear}`
 - [x] `awst login` — embedded SSO device flow (replaces `aws sso login`)
 - [x] `awst connect` — EC2 + SSM shell session (config/port-forward + codebuild still TODO)
+- [x] `awst list` / `kill` — local SSM session inspection (Linux /proc only)
 - [ ] `awst exec` — run command across one/many instances
 - [ ] `awst run` — execute snippets across AWS profiles
-- [ ] `awst list` / `kill` — local SSM session inspection
 - [ ] `awst config` — print resolved configuration
 - [ ] Distribution: GoReleaser, signed binaries
 - [ ] CI workflow (replaces deleted `.github/workflows/`)
