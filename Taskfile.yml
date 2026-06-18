@@ -29,6 +29,7 @@ tasks:
     cmds:
       - bash test/acceptance/creds.sh
       - bash test/acceptance/login.sh
+      - bash test/acceptance/connect.sh
 
   ci:
     desc: Run all checks (CI)

@@ -4,8 +4,8 @@ CLI for AWS shell + session work. A Go rewrite of the original Bash
 toolkit (see branch `main`); the port lives on branch `go-port` while
 commands are migrated one vertical slice at a time.
 
-**Status:** slices 1–2 — `awst creds` + `awst login`. Other commands
-(`connect`, `exec`, `run`, `list`, `kill`, `config`, `update`) still
+**Status:** slices 1–3 — `awst creds` + `awst login` + `awst connect`.
+Other commands (`exec`, `run`, `list`, `kill`, `config`, `update`) still
 live in the bash toolkit on `main`.
 
 ## Why a Go port
@@ -108,6 +108,38 @@ sso_region    = us-east-1
 Legacy SSO profiles (`sso_start_url` on the profile itself, no
 `sso_session`) are rejected — migrate them to the `sso_session` form.
 
+### `awst connect`
+
+Open an SSM shell session on an SSM-managed EC2 instance.
+
+```sh
+awst connect i-0123abc          # by instance ID
+awst connect web-prod           # case-insensitive substring on Name tag
+awst connect                    # list available instances
+awst connect -p dev -r us-east-2 web
+```
+
+Resolution:
+- If the arg starts with `i-`, it's treated as an exact instance ID.
+- Otherwise it's matched as a case-insensitive substring on the EC2
+  `Name` tag.
+- If the arg matches nothing, matches multiple instances, or no arg is
+  given, the matching/full list is printed and the command exits
+  non-zero. Pipe to `fzf` / `grep` to disambiguate, or pass an `i-…` id.
+
+Requires
+[session-manager-plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)
+on `PATH` (override with `AWST_SSM_PLUGIN`). The plugin handles the
+WebSocket session itself; awst just calls `ssm:StartSession` and execs
+the plugin with the response JSON — the same wiring the AWS CLI uses
+internally.
+
+Out of scope for this slice (still in the bash `awst connect` on
+`main`):
+- `--config` port-forwarding via `connections.conf`
+- `--codebuild` debug-session attachment
+- Interactive TUI picker (use `fzf`-style external piping for now)
+
 ## Development
 
 TDD discipline: each package has tests in the same directory, written
@@ -122,11 +154,13 @@ task ci                 # both of the above
 Layout:
 
 ```
-cmd/                cobra commands (root, creds, login)
+cmd/                cobra commands (root, creds, login, connect)
 internal/paths/     XDG / AWST_CREDS_DIR + SSO cache dir resolution
 internal/creds/     store (file I/O), exporter (eval output), resolver (SDK)
 internal/sso/       config (sso_session lookup), cache (token write),
                     login (device-flow orchestration)
+internal/connect/   describe (EC2/SSM cross-join + Name resolution),
+                    session (StartSession + plugin exec)
 test/acceptance/    no-AWS smoke that pins the eval-able output contract
 ```
 
@@ -148,7 +182,7 @@ Extract a shared package only when a second slice forces it.
 
 - [x] `awst creds {store,use,list,clear}`
 - [x] `awst login` — embedded SSO device flow (replaces `aws sso login`)
-- [ ] `awst connect` — EC2 + SSM start-session
+- [x] `awst connect` — EC2 + SSM shell session (config/port-forward + codebuild still TODO)
 - [ ] `awst exec` — run command across one/many instances
 - [ ] `awst run` — execute snippets across AWS profiles
 - [ ] `awst list` / `kill` — local SSM session inspection

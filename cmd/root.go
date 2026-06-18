@@ -19,6 +19,7 @@ func NewRootCmd() *cobra.Command {
 	}
 	root.AddCommand(newCredsCmd(defaultDeps()))
 	root.AddCommand(newLoginCmd(defaultLoginDeps()))
+	root.AddCommand(newConnectCmd(defaultConnectDeps()))
 	return root
 }
 
