@@ -24,3 +24,11 @@ func TestCredsDir_RespectsAWSTCredsDir(t *testing.T) {
 
 	require.Equal(t, "/custom/path", got)
 }
+
+func TestSSOCacheDir_Pinned(t *testing.T) {
+	t.Setenv("HOME", "/home/fake")
+
+	got := SSOCacheDir()
+
+	require.Equal(t, filepath.Join("/home/fake", ".aws", "sso", "cache"), got)
+}

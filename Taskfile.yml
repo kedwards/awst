@@ -28,6 +28,7 @@ tasks:
     deps: [build]
     cmds:
       - bash test/acceptance/creds.sh
+      - bash test/acceptance/login.sh
 
   ci:
     desc: Run all checks (CI)

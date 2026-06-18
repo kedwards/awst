@@ -4,9 +4,9 @@ CLI for AWS shell + session work. A Go rewrite of the original Bash
 toolkit (see branch `main`); the port lives on branch `go-port` while
 commands are migrated one vertical slice at a time.
 
-**Status:** slice 1 — `awst creds` only. Other commands (`connect`,
-`exec`, `run`, `list`, `kill`, `config`, `update`) still live in the
-bash toolkit on `main`.
+**Status:** slices 1–2 — `awst creds` + `awst login`. Other commands
+(`connect`, `exec`, `run`, `list`, `kill`, `config`, `update`) still
+live in the bash toolkit on `main`.
 
 ## Why a Go port
 
@@ -69,7 +69,7 @@ role, env vars, static creds — gets persisted. To prime an SSO session
 first:
 
 ```sh
-aws sso login --profile dev
+awst login dev                       # built-in; equivalent to `aws sso login --profile dev`
 eval "$(awst creds store dev)"
 ```
 
@@ -77,6 +77,36 @@ There is no dependency on
 [Granted](https://granted.dev) (`assume`). If you already use it on the
 host, that's fine — the SDK reads the same SSO cache files Granted
 writes to.
+
+### `awst login`
+
+Runs the IAM Identity Center device-authorization flow for the profile's
+`sso_session` and caches the resulting token at the SDK-standard path
+(`~/.aws/sso/cache/<sha1(session)>.json`). Once the token is cached, any
+profile referencing the same `sso_session` can resolve credentials via
+the default credential chain — including `awst creds store`.
+
+```sh
+awst login dev                # opens browser by default
+awst login dev --no-browser   # print the URL only (headless / containers)
+```
+
+Only the `sso_session` config form is supported:
+
+```ini
+[profile dev]
+sso_session = my-sso
+sso_account_id = 123456789012
+sso_role_name  = Developer
+region         = us-east-1
+
+[sso-session my-sso]
+sso_start_url = https://my-org.awsapps.com/start
+sso_region    = us-east-1
+```
+
+Legacy SSO profiles (`sso_start_url` on the profile itself, no
+`sso_session`) are rejected — migrate them to the `sso_session` form.
 
 ## Development
 
@@ -92,9 +122,11 @@ task ci                 # both of the above
 Layout:
 
 ```
-cmd/                cobra commands (root, creds)
-internal/paths/     XDG / AWST_CREDS_DIR resolution
+cmd/                cobra commands (root, creds, login)
+internal/paths/     XDG / AWST_CREDS_DIR + SSO cache dir resolution
 internal/creds/     store (file I/O), exporter (eval output), resolver (SDK)
+internal/sso/       config (sso_session lookup), cache (token write),
+                    login (device-flow orchestration)
 test/acceptance/    no-AWS smoke that pins the eval-able output contract
 ```
 
@@ -115,7 +147,7 @@ Extract a shared package only when a second slice forces it.
 ## Roadmap
 
 - [x] `awst creds {store,use,list,clear}`
-- [ ] `awst login` — embedded SSO device flow (replaces `aws sso login`)
+- [x] `awst login` — embedded SSO device flow (replaces `aws sso login`)
 - [ ] `awst connect` — EC2 + SSM start-session
 - [ ] `awst exec` — run command across one/many instances
 - [ ] `awst run` — execute snippets across AWS profiles
