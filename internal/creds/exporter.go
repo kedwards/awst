@@ -12,24 +12,55 @@ type Credentials struct {
 	Region          string
 }
 
-// FormatExports returns shell `export` statements consumed by
-// `eval "$(awst creds store|use <profile>)"`. The output is the contract
-// the bash version emits in lib/commands/awst_creds.sh — including the
-// AK/SK/ST shorthand for backwards-compat.
-func FormatExports(profile string, c Credentials) string {
-	var b strings.Builder
-	line := func(k, v string) {
-		fmt.Fprintf(&b, "export %s=%q\n", k, v)
+// Shell selects the syntax FormatExports emits.
+type Shell string
+
+const (
+	ShellPosix      Shell = "posix"      // export X="Y"  — eval "$(awst creds use dev)"
+	ShellPowerShell Shell = "powershell" // $env:X = 'Y'  — awst creds use dev | iex
+)
+
+// ParseShell validates a --shell value.
+func ParseShell(s string) (Shell, error) {
+	switch Shell(s) {
+	case ShellPosix:
+		return ShellPosix, nil
+	case ShellPowerShell:
+		return ShellPowerShell, nil
+	default:
+		return "", fmt.Errorf("unknown shell %q (want posix or powershell)", s)
 	}
-	line("AWS_ACCESS_KEY_ID", c.AccessKeyID)
-	line("AWS_SECRET_ACCESS_KEY", c.SecretAccessKey)
-	line("AWS_SESSION_TOKEN", c.SessionToken)
+}
+
+// FormatExports returns shell statements that set the credential env vars
+// for the given shell. posix output is consumed via eval "$(...)";
+// powershell output via `... | iex`. cmd.exe has no clean eval equivalent
+// and isn't supported — use PowerShell.
+func FormatExports(profile string, c Credentials, shell Shell) string {
+	vars := [][2]string{
+		{"AWS_ACCESS_KEY_ID", c.AccessKeyID},
+		{"AWS_SECRET_ACCESS_KEY", c.SecretAccessKey},
+		{"AWS_SESSION_TOKEN", c.SessionToken},
+	}
 	if c.Region != "" {
-		line("AWS_REGION", c.Region)
+		vars = append(vars, [2]string{"AWS_REGION", c.Region})
 	}
-	line("AWS_PROFILE", profile)
-	line("AK", c.AccessKeyID)
-	line("SK", c.SecretAccessKey)
-	line("ST", c.SessionToken)
+	vars = append(vars, [2]string{"AWS_PROFILE", profile})
+
+	var b strings.Builder
+	for _, kv := range vars {
+		if shell == ShellPowerShell {
+			fmt.Fprintf(&b, "$env:%s = %s\n", kv[0], psQuote(kv[1]))
+		} else {
+			fmt.Fprintf(&b, "export %s=%q\n", kv[0], kv[1])
+		}
+	}
 	return b.String()
+}
+
+// psQuote single-quotes a value for PowerShell. Single quotes are literal
+// (no interpolation, so a '$' in a token is safe); an embedded single quote
+// is escaped by doubling it.
+func psQuote(v string) string {
+	return "'" + strings.ReplaceAll(v, "'", "''") + "'"
 }

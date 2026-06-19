@@ -32,14 +32,27 @@ func newCredsCmd(d credsDeps) *cobra.Command {
 		Short: "Manage AWS credentials per profile",
 		Long: `Store, use, list, and clear AWS credentials per profile.
 
+store/use print statements that set the credential env vars. Choose the
+syntax with --shell (default posix):
+
+  posix:       eval "$(awst creds store dev)"
+  powershell:  awst creds store dev --shell powershell | iex
+
 Examples:
   eval "$(awst creds store dev)"
-  eval "$(awst creds use dev)"
+  awst creds use dev --shell powershell | iex
   awst creds list
   awst creds clear dev`,
 	}
+	c.PersistentFlags().String("shell", "posix", "Output syntax: posix or powershell")
 	c.AddCommand(newCredsStoreCmd(d), newCredsUseCmd(d), newCredsListCmd(d), newCredsClearCmd(d))
 	return c
+}
+
+// shellFromCmd reads and validates the persistent --shell flag.
+func shellFromCmd(cmd *cobra.Command) (creds.Shell, error) {
+	v, _ := cmd.Flags().GetString("shell")
+	return creds.ParseShell(v)
 }
 
 func newCredsStoreCmd(d credsDeps) *cobra.Command {
@@ -55,6 +68,10 @@ intended for eval:
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			profile := args[0]
+			shell, err := shellFromCmd(cmd)
+			if err != nil {
+				return err
+			}
 			ctx := cmd.Context()
 			if ctx == nil {
 				ctx = context.Background()
@@ -72,7 +89,7 @@ intended for eval:
 			if err := d.store.Save(profile, resolved); err != nil {
 				return err
 			}
-			fmt.Fprint(cmd.OutOrStdout(), creds.FormatExports(profile, resolved))
+			fmt.Fprint(cmd.OutOrStdout(), creds.FormatExports(profile, resolved, shell))
 			return nil
 		},
 	}
@@ -87,6 +104,10 @@ func newCredsUseCmd(d credsDeps) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			profile := args[0]
+			shell, err := shellFromCmd(cmd)
+			if err != nil {
+				return err
+			}
 			c, err := d.store.Load(profile)
 			if err != nil {
 				if errors.Is(err, creds.ErrProfileNotStored) {
@@ -94,7 +115,7 @@ func newCredsUseCmd(d credsDeps) *cobra.Command {
 				}
 				return err
 			}
-			fmt.Fprint(cmd.OutOrStdout(), creds.FormatExports(profile, c))
+			fmt.Fprint(cmd.OutOrStdout(), creds.FormatExports(profile, c, shell))
 			return nil
 		},
 	}

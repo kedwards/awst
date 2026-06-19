@@ -52,7 +52,10 @@ Requires Go 1.26+ to build from source.
 ### `awst creds`
 
 Manage AWS credentials per profile. The store / use commands print
-shell `export` statements designed for `eval`:
+statements that set the credential env vars, for injecting into
+third-party tools that don't read the AWS profile / SSO cache. (awst's
+own commands and the `aws` CLI don't need this — they use the SDK
+chain directly.)
 
 ```sh
 # Resolve credentials for a profile via the SDK chain and persist them
@@ -68,6 +71,17 @@ awst creds list
 awst creds clear dev      # one profile
 awst creds clear          # all profiles
 ```
+
+Pick the output syntax with `--shell` (default `posix`). PowerShell
+output is consumed with `| iex`:
+
+```powershell
+awst creds store dev --shell powershell | iex
+awst creds use dev   --shell powershell | iex
+```
+
+`cmd.exe` has no clean `eval`/`iex` equivalent and isn't supported —
+use PowerShell on Windows.
 
 Stored credentials live in `$AWST_CREDS_DIR` (default
 `~/.local/share/aws-tools/creds`), one `<profile>.env` per profile,
