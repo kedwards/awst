@@ -29,11 +29,20 @@ const PluginName = "session-manager-plugin"
 // StartSession calls ssm:StartSession and hands the response off to runner
 // with the 6-arg shape the AWS CLI passes to session-manager-plugin.
 func StartSession(ctx context.Context, s SSMSessionClient, runner PluginRunner, instanceID, region, profile, endpoint string) error {
-	out, err := s.StartSession(ctx, &ssm.StartSessionInput{Target: aws.String(instanceID)})
+	in := &ssm.StartSessionInput{Target: aws.String(instanceID)}
+	out, err := s.StartSession(ctx, in)
 	if err != nil {
 		return fmt.Errorf("start ssm session: %w", err)
 	}
+	return dispatchToPlugin(runner, out, in, region, profile, endpoint)
+}
 
+// dispatchToPlugin builds the 6-arg session-manager-plugin invocation that
+// the AWS CLI uses: the StartSession response JSON, region, the literal
+// "StartSession" op, profile, the request-parameters JSON, and endpoint.
+// The params JSON mirrors whatever fields were set on the request (Target
+// for a shell, plus DocumentName/Parameters for port forwarding).
+func dispatchToPlugin(runner PluginRunner, out *ssm.StartSessionOutput, in *ssm.StartSessionInput, region, profile, endpoint string) error {
 	respJSON, err := json.Marshal(map[string]string{
 		"SessionId":  aws.ToString(out.SessionId),
 		"StreamUrl":  aws.ToString(out.StreamUrl),
@@ -42,11 +51,15 @@ func StartSession(ctx context.Context, s SSMSessionClient, runner PluginRunner, 
 	if err != nil {
 		return fmt.Errorf("marshal session response: %w", err)
 	}
-	paramsJSON, err := json.Marshal(map[string]string{"Target": instanceID})
+	params := map[string]any{"Target": aws.ToString(in.Target)}
+	if in.DocumentName != nil {
+		params["DocumentName"] = aws.ToString(in.DocumentName)
+		params["Parameters"] = in.Parameters
+	}
+	paramsJSON, err := json.Marshal(params)
 	if err != nil {
 		return fmt.Errorf("marshal session params: %w", err)
 	}
-
 	return runner.Run([]string{
 		string(respJSON),
 		region,
