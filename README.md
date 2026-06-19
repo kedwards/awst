@@ -4,8 +4,9 @@ CLI for AWS shell + session work. A Go rewrite of the original Bash
 toolkit (see branch `main`); the port lives on branch `go-port` while
 commands are migrated one vertical slice at a time.
 
-**Status:** slices 1–8 — `awst creds` + `awst login` + `awst connect`
-+ `awst list`/`kill` + `awst exec` + `awst run` + `awst config`.
+**Status:** slices 1–9 — `awst creds` + `awst login` + `awst connect`
+(shell + port-forwarding) + `awst list`/`kill` + `awst exec` + `awst run`
++ `awst config`.
 `awst update` is intentionally not ported: a single static binary
 released via GoReleaser doesn't need the bash tarball+rsync updater —
 use your package manager, `go install`, or the GitHub release assets.
@@ -146,11 +147,50 @@ WebSocket session itself; awst just calls `ssm:StartSession` and execs
 the plugin with the response JSON — the same wiring the AWS CLI uses
 internally.
 
+#### Port forwarding
+
+Tunnel one or more local ports to the instance, or to a host reachable
+from it (`--host`, e.g. an RDS endpoint). The spec is a comma-separated
+list of `PORT` or `LOCAL:REMOTE` mappings; multiple ports run as
+concurrent sessions that a single Ctrl+C tears down together.
+
+```sh
+awst connect web-prod --forward 5432:5432
+awst connect web --forward 8428,9093 --host mon.internal
+```
+
+Both cases use `AWS-StartPortForwardingSessionToRemoteHost` (the same
+document the AWS CLI uses). With no `--host` the target defaults to
+`localhost` — a service terminating on the instance itself (e.g.
+AlertManager). With `--host` it terminates at a remote endpoint reachable
+from the instance (e.g. an RDS database).
+
+#### Saved connections
+
+If the argument matches a `[section]` in the connections file (default
+`~/.config/aws-tools/connections.config`, override with `-f` or
+`AWST_CONN_FILE`), a port-forward starts from that section's settings.
+The INI format matches the bash `connections.config`, so existing files
+work unchanged:
+
+```ini
+[Engine]
+name = CheckoutEngine     # instance Name-tag filter
+host = rds.internal       # remote endpoint (omit for a port on the box)
+port = 5432
+local_port = 15432
+profile = prod            # optional; pins profile/region
+
+[Monitoring-All]
+name = Monitoring
+ports = 8428,9093         # multi-port; local_ports defaults to ports
+```
+
 Out of scope for this slice (still in the bash `awst connect` on
 `main`):
-- `--config` port-forwarding via `connections.conf`
 - `--codebuild` debug-session attachment
 - Interactive TUI picker (use `fzf`-style external piping for now)
+- `url =` browser auto-open after forwarding
 
 ### `awst list` and `awst kill`
 
@@ -293,11 +333,11 @@ Extract a shared package only when a second slice forces it.
 
 - [x] `awst creds {store,use,list,clear}`
 - [x] `awst login` — embedded SSO device flow (replaces `aws sso login`)
-- [x] `awst connect` — EC2 + SSM shell session (config/port-forward + codebuild still TODO)
+- [x] `awst connect` — EC2 + SSM shell session + port-forwarding (ad-hoc + saved connections; codebuild still TODO)
 - [x] `awst list` / `kill` — local SSM session inspection (Linux /proc only)
 - [x] `awst exec` — SendCommand across one/many instances
 - [x] `awst run` — execute snippets across AWS profiles
-- [ ] `awst config` — print resolved configuration
+- [x] `awst config` — print resolved configuration
 - [x] CI workflow — GitHub Actions runs `task ci` on PRs to `go-port`
 - [x] Distribution: GoReleaser (linux/darwin × amd64/arm64; signing TODO)
 

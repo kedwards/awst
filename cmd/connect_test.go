@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -20,6 +23,7 @@ import (
 type stubSSM struct {
 	infos     []ssmtypes.InstanceInformation
 	startOut  *ssm.StartSessionOutput
+	mu        sync.Mutex // guards startCall under concurrent multi-port forwards
 	startCall *ssm.StartSessionInput
 }
 
@@ -27,6 +31,8 @@ func (s *stubSSM) DescribeInstanceInformation(_ context.Context, _ *ssm.Describe
 	return &ssm.DescribeInstanceInformationOutput{InstanceInformationList: s.infos}, nil
 }
 func (s *stubSSM) StartSession(_ context.Context, in *ssm.StartSessionInput, _ ...func(*ssm.Options)) (*ssm.StartSessionOutput, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.startCall = in
 	return s.startOut, nil
 }
@@ -193,11 +199,97 @@ func TestConnect_AuthFailure_HintsAtLogin(t *testing.T) {
 	require.Contains(t, err.Error(), "awst login dev")
 }
 
+// multiRunner records every plugin invocation; safe for concurrent
+// multi-port forwarding.
+type multiRunner struct {
+	mu   sync.Mutex
+	runs [][]string
+}
+
+func (m *multiRunner) Run(args []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.runs = append(m.runs, append([]string(nil), args...))
+	return nil
+}
+
+func startOut() *ssm.StartSessionOutput {
+	return &ssm.StartSessionOutput{
+		SessionId: aws.String("s1"), StreamUrl: aws.String("wss://x"), TokenValue: aws.String("t"),
+	}
+}
+
+func TestConnect_AdHocForward_SinglePort(t *testing.T) {
+	ssmStub := &stubSSM{infos: []ssmtypes.InstanceInformation{ssmInfo("i-aaa")}, startOut: startOut()}
+	ec2Stub := &stubEC2{instances: []ec2types.Instance{ec2Inst("i-aaa", "web")}}
+	runner := &captureRunner{}
+	d := connectTestDeps(ssmStub, ec2Stub, runner, nil)
+
+	_, _, err := runConnect(t, d, "connect", "web", "--forward", "15432:5432")
+	require.NoError(t, err)
+	// Always the RemoteHost document; no --host defaults to localhost.
+	require.Equal(t, "AWS-StartPortForwardingSessionToRemoteHost", aws.ToString(ssmStub.startCall.DocumentName))
+	require.Equal(t, map[string][]string{"host": {"localhost"}, "portNumber": {"5432"}, "localPortNumber": {"15432"}}, ssmStub.startCall.Parameters)
+	require.Len(t, runner.gotArgs, 6)
+}
+
+func TestConnect_AdHocForward_RemoteHost(t *testing.T) {
+	ssmStub := &stubSSM{infos: []ssmtypes.InstanceInformation{ssmInfo("i-aaa")}, startOut: startOut()}
+	ec2Stub := &stubEC2{instances: []ec2types.Instance{ec2Inst("i-aaa", "web")}}
+	d := connectTestDeps(ssmStub, ec2Stub, &captureRunner{}, nil)
+
+	_, _, err := runConnect(t, d, "connect", "web", "--forward", "5432", "--host", "rds.internal")
+	require.NoError(t, err)
+	require.Equal(t, "AWS-StartPortForwardingSessionToRemoteHost", aws.ToString(ssmStub.startCall.DocumentName))
+	require.Equal(t, []string{"rds.internal"}, ssmStub.startCall.Parameters["host"])
+}
+
+func TestConnect_AdHocForward_MultiPort(t *testing.T) {
+	ssmStub := &stubSSM{infos: []ssmtypes.InstanceInformation{ssmInfo("i-aaa")}, startOut: startOut()}
+	ec2Stub := &stubEC2{instances: []ec2types.Instance{ec2Inst("i-aaa", "web")}}
+	runner := &multiRunner{}
+	d := connectTestDeps(ssmStub, ec2Stub, runner, nil)
+
+	_, _, err := runConnect(t, d, "connect", "web", "--forward", "8428,9093")
+	require.NoError(t, err)
+	require.Len(t, runner.runs, 2, "one plugin process per forwarded port")
+}
+
+func TestConnect_InvalidForwardSpec_ErrorsBeforeAWS(t *testing.T) {
+	ssmStub := &stubSSM{infos: []ssmtypes.InstanceInformation{ssmInfo("i-aaa")}}
+	ec2Stub := &stubEC2{instances: []ec2types.Instance{ec2Inst("i-aaa", "web")}}
+	d := connectTestDeps(ssmStub, ec2Stub, &captureRunner{}, nil)
+
+	_, _, err := runConnect(t, d, "connect", "web", "--forward", "not-a-port")
+	require.Error(t, err)
+	require.Nil(t, ssmStub.startCall, "must fail before any StartSession call")
+}
+
+func TestConnect_SavedConnection(t *testing.T) {
+	connFile := filepath.Join(t.TempDir(), "connections.config")
+	require.NoError(t, os.WriteFile(connFile, []byte(
+		"[Engine]\nname = CheckoutEngine\nhost = rds.internal\nport = 5432\nlocal_port = 15432\n"), 0o644))
+
+	ssmStub := &stubSSM{infos: []ssmtypes.InstanceInformation{ssmInfo("i-aaa")}, startOut: startOut()}
+	ec2Stub := &stubEC2{instances: []ec2types.Instance{ec2Inst("i-aaa", "CheckoutEngine")}}
+	runner := &captureRunner{}
+	d := connectTestDeps(ssmStub, ec2Stub, runner, nil)
+	d.connFile = connFile
+
+	_, _, err := runConnect(t, d, "connect", "Engine")
+	require.NoError(t, err)
+	// Resolved the instance via the connection's name= field, and forwarded
+	// to the configured remote host/ports.
+	require.Equal(t, "i-aaa", aws.ToString(ssmStub.startCall.Target))
+	require.Equal(t, "AWS-StartPortForwardingSessionToRemoteHost", aws.ToString(ssmStub.startCall.DocumentName))
+	require.Equal(t, []string{"15432"}, ssmStub.startCall.Parameters["localPortNumber"])
+}
+
 func TestConnect_HelpFlag(t *testing.T) {
 	d := connectTestDeps(&stubSSM{}, &stubEC2{}, &captureRunner{}, nil)
 	out, _, err := runConnect(t, d, "connect", "-h")
 	require.NoError(t, err)
-	require.Contains(t, out, "connect [instance]")
+	require.Contains(t, out, "connect [instance|connection]")
 	require.Contains(t, out, "--profile")
 	require.Contains(t, out, "--region")
 }
