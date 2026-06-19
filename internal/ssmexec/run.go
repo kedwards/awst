@@ -111,12 +111,11 @@ func Run(ctx context.Context, c CmdClient, command string, instanceIDs []string,
 	}
 
 	remaining := append([]string(nil), instanceIDs...)
-	first := true
 	for len(remaining) > 0 {
-		if !first {
-			sleep(pollInterval)
-		}
-		first = false
+		// Sleep before every poll, including the first — SSM propagates
+		// SendCommand → GetCommandInvocation asynchronously, so the first
+		// poll right after SendCommand routinely races and 400s.
+		sleep(pollInterval)
 
 		stillPending := remaining[:0]
 		for _, id := range remaining {
@@ -125,6 +124,15 @@ func Run(ctx context.Context, c CmdClient, command string, instanceIDs []string,
 				InstanceId: aws.String(id),
 			})
 			if err != nil {
+				// SSM propagates SendCommand → GetCommandInvocation asynchronously;
+				// the first few polls after SendCommand routinely return
+				// InvocationDoesNotExist before the invocation record exists.
+				// Treat it as "still pending" rather than fatal.
+				var dne *ssmtypes.InvocationDoesNotExist
+				if errors.As(err, &dne) {
+					stillPending = append(stillPending, id)
+					continue
+				}
 				return nil, fmt.Errorf("ssm get-command-invocation %s: %w", id, err)
 			}
 			if !terminal(out.Status) {

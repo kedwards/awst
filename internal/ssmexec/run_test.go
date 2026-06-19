@@ -20,6 +20,7 @@ type stubCmd struct {
 	sendErr error
 
 	getOuts map[string][]*ssm.GetCommandInvocationOutput // keyed by instanceID, per-call queue
+	getErrs map[string][]error                           // optional per-call error queue
 	getN    map[string]int
 }
 
@@ -35,6 +36,9 @@ func (s *stubCmd) GetCommandInvocation(_ context.Context, in *ssm.GetCommandInvo
 	}
 	idx := s.getN[id]
 	s.getN[id]++
+	if errs, ok := s.getErrs[id]; ok && idx < len(errs) && errs[idx] != nil {
+		return nil, errs[idx]
+	}
 	q := s.getOuts[id]
 	if idx >= len(q) {
 		return nil, errors.New("stub exhausted for " + id)
@@ -124,6 +128,24 @@ func TestRun_SendCommandError(t *testing.T) {
 	c := &stubCmd{sendErr: sentinel}
 	_, err := Run(context.Background(), c, "x", []string{"i-aaa"}, func(time.Duration) {})
 	require.ErrorIs(t, err, sentinel)
+}
+
+func TestRun_RetriesOnInvocationDoesNotExist(t *testing.T) {
+	// SSM commonly returns InvocationDoesNotExist for the first few polls
+	// after SendCommand while the invocation record propagates.
+	c := &stubCmd{
+		sendOut: &ssm.SendCommandOutput{Command: &ssmtypes.Command{CommandId: aws.String("cmd-1")}},
+		getErrs: map[string][]error{
+			"i-aaa": {&ssmtypes.InvocationDoesNotExist{}, &ssmtypes.InvocationDoesNotExist{}, nil},
+		},
+		getOuts: map[string][]*ssm.GetCommandInvocationOutput{
+			"i-aaa": {nil, nil, okInv(ssmtypes.CommandInvocationStatusSuccess, "ok\n", "", 0)},
+		},
+	}
+	results, err := Run(context.Background(), c, "x", []string{"i-aaa"}, func(time.Duration) {})
+	require.NoError(t, err)
+	require.Equal(t, "Success", results[0].Status)
+	require.Equal(t, "ok\n", results[0].Stdout)
 }
 
 func TestRun_EmptyInstanceList(t *testing.T) {
