@@ -45,3 +45,13 @@ tasks:
     cmds:
       - cat VERSION
     silent: true
+
+  release-check:
+    desc: Validate .goreleaser.yml without building
+    cmds:
+      - go run github.com/goreleaser/goreleaser/v2@latest check
+
+  release-snapshot:
+    desc: Build release artifacts locally (no publish) into ./dist
+    cmds:
+      - go run github.com/goreleaser/goreleaser/v2@latest release --snapshot --clean --skip=publish

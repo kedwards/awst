@@ -20,11 +20,21 @@ sourcing, no `assume` shell-out.
 
 ## Install
 
+**Pre-built binary** (linux / darwin × amd64 / arm64):
+
+```sh
+# Pick the asset matching your OS/arch from the latest release
+curl -sSL https://github.com/kedwards/aws-tools/releases/latest/download/awst_<VERSION>_linux_amd64.tar.gz \
+  | tar -xz -C /usr/local/bin awst
+```
+
+**From Go toolchain:**
+
 ```sh
 go install github.com/kedwards/aws-tools@latest
 ```
 
-Or build from source:
+**From source:**
 
 ```sh
 git clone -b go-port https://github.com/kedwards/aws-tools.git
@@ -32,7 +42,7 @@ cd aws-tools
 task build              # → dist/awst
 ```
 
-Requires Go 1.26+.
+Requires Go 1.26+ to build from source.
 
 ## Usage
 
@@ -270,8 +280,8 @@ Extract a shared package only when a second slice forces it.
 - [x] `awst exec` — SendCommand across one/many instances
 - [x] `awst run` — execute snippets across AWS profiles
 - [ ] `awst config` — print resolved configuration
-- [ ] Distribution: GoReleaser, signed binaries
-- [ ] CI workflow (replaces deleted `.github/workflows/`)
+- [x] CI workflow — GitHub Actions runs `task ci` on PRs to `go-port`
+- [x] Distribution: GoReleaser (linux/darwin × amd64/arm64; signing TODO)
 
 ## License
 
