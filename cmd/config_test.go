@@ -72,7 +72,7 @@ func TestConfig_MarksMissingVsExisting(t *testing.T) {
 
 func TestConfig_HonorsOverridesAndAWSEnv(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("AWST_CMD_DIR", "/opt/awst/cmds")
+	t.Setenv("AWST_RUN_CMD_USER", "/opt/awst/cmds")
 	t.Setenv("AWS_PROFILE", "prod")
 	t.Setenv("AWS_REGION", "")
 	t.Setenv("AWS_DEFAULT_REGION", "eu-west-1")

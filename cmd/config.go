@@ -51,9 +51,7 @@ func printConfig(w io.Writer) {
 	fmt.Fprintln(tw, "")
 
 	fmt.Fprintln(tw, "Commands (awst run)")
-	fmt.Fprintf(tw, "  Override\t%s\n", envOrNone("AWST_CMD_DIR"))
-	fmt.Fprintf(tw, "  Base\t%s\n", marked(envOr("AWST_RUN_CMD_BASE", defaultCmd)))
-	fmt.Fprintf(tw, "  User\t%s\n", marked(envOr("AWST_RUN_CMD_USER", defaultCmd)))
+	fmt.Fprintf(tw, "  Dir\t%s\n", marked(envOr("AWST_RUN_CMD_USER", defaultCmd)))
 	fmt.Fprintln(tw, "")
 
 	fmt.Fprintln(tw, "AWS")
@@ -77,13 +75,6 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
-}
-
-func envOrNone(key string) string {
-	if v := os.Getenv(key); v != "" {
-		return marked(v)
-	}
-	return "(none)"
 }
 
 func orNotSet(v string) string {
