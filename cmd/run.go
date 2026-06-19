@@ -141,6 +141,16 @@ Examples:
 				snippet = body
 			}
 
+			// Snippets and inline commands are POSIX shell; resolve sh/bash
+			// once up front (on Windows this finds Git Bash / WSL or errors).
+			shell := ""
+			if !isExecutable {
+				shell, err = runner.POSIXShell()
+				if err != nil {
+					return err
+				}
+			}
+
 			targets, err := buildTargets(filter, d.listProfiles)
 			if err != nil {
 				return err
@@ -175,7 +185,7 @@ Examples:
 				if isExecutable {
 					childArgs = []string{scriptPath}
 				} else {
-					childArgs = runner.ShellCommandArgs(runner.Substitute(snippet, t.Profile, t.Region))
+					childArgs = []string{shell, "-c", runner.Substitute(snippet, t.Profile, t.Region)}
 				}
 				if _, err := d.runChild(childArgs, env, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(),

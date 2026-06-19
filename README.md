@@ -283,6 +283,12 @@ Executable files (`+x`) are exec'd directly:
 - **without a filter** → run once, no profile loop (the script handles
   its own iteration)
 
+**Windows:** snippets and inline (`-q`) commands are POSIX shell, so they
+run via `sh -c`. awst looks for `sh`/`bash` on `PATH` (Git Bash, WSL, or
+MSYS); if none is found it errors with that hint. cmd.exe/PowerShell can't
+run the snippet library (`\`-continuations, `$(...)`, `jq`), so they aren't
+used.
+
 ### `awst config`
 
 Print the paths and AWS settings awst resolves at runtime — where creds
