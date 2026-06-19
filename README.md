@@ -4,9 +4,9 @@ CLI for AWS shell + session work. A Go rewrite of the original Bash
 toolkit (see branch `main`); the port lives on branch `go-port` while
 commands are migrated one vertical slice at a time.
 
-**Status:** slices 1–5 — `awst creds` + `awst login` + `awst connect`
-+ `awst list`/`kill` + `awst exec`. Other commands (`run`, `config`,
-`update`) still live in the bash toolkit on `main`.
+**Status:** slices 1–6 — `awst creds` + `awst login` + `awst connect`
++ `awst list`/`kill` + `awst exec` + `awst run`. Other commands
+(`config`, `update`) still live in the bash toolkit on `main`.
 
 ## Why a Go port
 
@@ -184,6 +184,38 @@ The command runs under `AWS-RunShellScript` (default `/bin/sh`).
 Include your own shebang or wrap with `bash -c '...'` if you need bash
 features. PowerShell targets aren't supported yet.
 
+### `awst run`
+
+Run a saved snippet, an executable script, or an inline command across
+one or more AWS profiles. For each profile, awst resolves credentials
+via the SDK chain, exports `AWS_PROFILE` / `AWS_REGION` /
+`AWS_ACCESS_KEY_ID` / etc. into the child env, and execs the command.
+Per-profile auth failures warn and skip — the rest still run.
+
+```sh
+awst run                                     # list available commands
+awst run vpc-cidrs                           # snippet across every profile in ~/.aws/config
+awst run vpc-cidrs "dev prod:us-west-2"      # filtered to two profiles
+awst run -q "aws s3 ls" "dev"                # inline command
+awst run -d ./snippets my-snippet "dev"      # exclusive override of commands dir
+```
+
+Commands live as files under (in increasing priority):
+- `$AWST_RUN_CMD_BASE` (default `~/.config/aws-tools/commands/aws`)
+- `$AWST_RUN_CMD_USER` (overrides base on collision)
+- `-d <path>` / `$AWST_CMD_DIR` (exclusive — replaces both)
+
+Snippet files (non-executable) have comment + blank lines stripped and
+are run via `sh -c`. Placeholders `#ENV` (current profile) and
+`#REGION` (current region) are substituted for back-compat with the
+bash snippet library; new snippets can use `$AWS_PROFILE` / `$AWS_REGION`
+directly since those are exported.
+
+Executable files (`+x`) are exec'd directly:
+- **with a filter** → iterated per profile, with AWS env vars set
+- **without a filter** → run once, no profile loop (the script handles
+  its own iteration)
+
 ## Development
 
 TDD discipline: each package has tests in the same directory, written
@@ -199,7 +231,7 @@ Layout:
 
 ```
 cmd/                cobra commands (root, creds, login, connect, list,
-                    kill, exec)
+                    kill, exec, run)
 internal/paths/     XDG / AWST_CREDS_DIR + SSO cache dir resolution
 internal/creds/     store (file I/O), exporter (eval output), resolver (SDK)
 internal/sso/       config (sso_session lookup), cache (token write),
@@ -210,6 +242,8 @@ internal/sessions/  /proc-scan for active session-manager-plugin
                     processes (powers `awst list` / `awst kill`)
 internal/ssmexec/   SendCommand + poll loop + pattern expansion
                     (powers `awst exec`)
+internal/runner/    dir layering, snippet load, placeholder substitution,
+                    filter parsing (powers `awst run`)
 test/acceptance/    no-AWS smoke that pins the eval-able output contract
 ```
 
@@ -234,7 +268,7 @@ Extract a shared package only when a second slice forces it.
 - [x] `awst connect` — EC2 + SSM shell session (config/port-forward + codebuild still TODO)
 - [x] `awst list` / `kill` — local SSM session inspection (Linux /proc only)
 - [x] `awst exec` — SendCommand across one/many instances
-- [ ] `awst run` — execute snippets across AWS profiles
+- [x] `awst run` — execute snippets across AWS profiles
 - [ ] `awst config` — print resolved configuration
 - [ ] Distribution: GoReleaser, signed binaries
 - [ ] CI workflow (replaces deleted `.github/workflows/`)
