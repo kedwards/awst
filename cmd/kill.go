@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"syscall"
-	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -19,9 +17,7 @@ func newKillCmd(d sessionsDeps) *cobra.Command {
 
 Pass one or more PIDs (find them via ` + "`awst list`" + `), or use --all to
 terminate every active session-manager-plugin process on this host.
-
-Each kill does SIGTERM, waits briefly, then SIGKILL if the process is
-still alive.`,
+Each kill uses the local platform's process termination semantics.`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if all && len(args) > 0 {
@@ -70,21 +66,4 @@ still alive.`,
 	}
 	c.Flags().BoolVar(&all, "all", false, "Terminate every active SSM session on this host")
 	return c
-}
-
-// defaultKiller sends SIGTERM, waits briefly, then SIGKILL if the process
-// is still alive. ponytail: 250ms grace is empirical from the bash kill
-// flow — bump if plugins start ignoring SIGTERM in practice.
-func defaultKiller(pid int) error {
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
-		return fmt.Errorf("SIGTERM: %w", err)
-	}
-	time.Sleep(250 * time.Millisecond)
-	if err := syscall.Kill(pid, 0); err != nil {
-		return nil // already gone
-	}
-	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
-		return fmt.Errorf("SIGKILL: %w", err)
-	}
-	return nil
 }

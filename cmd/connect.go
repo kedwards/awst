@@ -7,16 +7,17 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sync"
 	"text/tabwriter"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/spf13/cobra"
 
 	"github.com/kedwards/aws-tools/internal/connect"
+	"github.com/kedwards/aws-tools/internal/paths"
 	"github.com/kedwards/aws-tools/internal/ssmexec"
 )
 
@@ -36,6 +37,8 @@ type connectDeps struct {
 	connFile   string // default connections file; -f overrides at runtime
 }
 
+var awsProfileEnvMu sync.Mutex
+
 func defaultConnectDeps() connectDeps {
 	pluginBin := connect.PluginName
 	if v := os.Getenv("AWST_SSM_PLUGIN"); v != "" {
@@ -43,19 +46,12 @@ func defaultConnectDeps() connectDeps {
 	}
 	connFile := os.Getenv("AWST_CONN_FILE")
 	if connFile == "" {
-		connFile = filepath.Join(os.Getenv("HOME"), ".config", "aws-tools", "connections.config")
+		connFile = paths.ConnectionsFile()
 	}
 	return connectDeps{
 		connFile: connFile,
 		clients: func(ctx context.Context, profile, region string) (*ssmClients, error) {
-			opts := []func(*config.LoadOptions) error{}
-			if profile != "" {
-				opts = append(opts, config.WithSharedConfigProfile(profile))
-			}
-			if region != "" {
-				opts = append(opts, config.WithRegion(region))
-			}
-			cfg, err := config.LoadDefaultConfig(ctx, opts...)
+			cfg, err := loadAWSConfig(ctx, profile, region)
 			if err != nil {
 				return nil, fmt.Errorf("load aws config: %w", err)
 			}
@@ -75,6 +71,65 @@ func defaultConnectDeps() connectDeps {
 			return err
 		},
 	}
+}
+
+func loadAWSConfig(ctx context.Context, profile, region string) (aws.Config, error) {
+	cfg, err := config.LoadDefaultConfig(ctx, awsConfigLoadOptions(profile, region)...)
+	if err == nil {
+		return cfg, nil
+	}
+	if profile != "" || !shouldRetryWithAmbientEnvCreds(err) {
+		return aws.Config{}, err
+	}
+	return loadAWSConfigIgnoringProfileEnv(ctx, region)
+}
+
+func awsConfigLoadOptions(profile, region string) []func(*config.LoadOptions) error {
+	opts := []func(*config.LoadOptions) error{}
+	if profile != "" {
+		opts = append(opts, config.WithSharedConfigProfile(profile))
+	}
+	if region != "" {
+		opts = append(opts, config.WithRegion(region))
+	}
+	return opts
+}
+
+func shouldRetryWithAmbientEnvCreds(err error) bool {
+	var missing config.SharedConfigProfileNotExistError
+	if !errors.As(err, &missing) {
+		return false
+	}
+	return os.Getenv("AWS_ACCESS_KEY_ID") != "" && os.Getenv("AWS_SECRET_ACCESS_KEY") != ""
+}
+
+func loadAWSConfigIgnoringProfileEnv(ctx context.Context, region string) (aws.Config, error) {
+	awsProfileEnvMu.Lock()
+	defer awsProfileEnvMu.Unlock()
+
+	saved := map[string]*string{}
+	for _, key := range []string{"AWS_PROFILE", "AWS_DEFAULT_PROFILE"} {
+		if v, ok := os.LookupEnv(key); ok {
+			v := v
+			saved[key] = &v
+			if err := os.Unsetenv(key); err != nil {
+				return aws.Config{}, err
+			}
+			continue
+		}
+		saved[key] = nil
+	}
+	defer func() {
+		for key, value := range saved {
+			if value == nil {
+				_ = os.Unsetenv(key)
+				continue
+			}
+			_ = os.Setenv(key, *value)
+		}
+	}()
+
+	return config.LoadDefaultConfig(ctx, awsConfigLoadOptions("", region)...)
 }
 
 func newConnectCmd(d connectDeps) *cobra.Command {

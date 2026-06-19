@@ -59,6 +59,9 @@ func TestCache_Save_WritesSDKReadableJSON(t *testing.T) {
 func TestCache_Path_MatchesSDKStandardLocation(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOMEDRIVE", "")
+	t.Setenv("HOMEPATH", "")
 
 	want, err := ssocreds.StandardCachedTokenFilepath("my-sso")
 	require.NoError(t, err)

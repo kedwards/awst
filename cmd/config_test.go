@@ -9,6 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kedwards/aws-tools/internal/paths"
 )
 
 func runConfig(t *testing.T, args ...string) (stdout, stderr string, err error) {
@@ -25,7 +27,7 @@ func runConfig(t *testing.T, args ...string) (stdout, stderr string, err error) 
 
 func TestConfig_ReportsResolvedPaths(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setConfigTestHome(t, home)
 	// Clear anything inherited so the test is deterministic.
 	for _, k := range []string{"AWST_CREDS_DIR", "AWST_CMD_DIR", "AWST_RUN_CMD_BASE", "AWST_RUN_CMD_USER", "AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION"} {
 		t.Setenv(k, "")
@@ -35,17 +37,17 @@ func TestConfig_ReportsResolvedPaths(t *testing.T) {
 	require.NoError(t, err)
 
 	// HOME-derived defaults show up.
-	require.Contains(t, out, filepath.Join(home, ".local/share/aws-tools/creds"))
-	require.Contains(t, out, filepath.Join(home, ".aws", "sso", "cache"))
-	require.Contains(t, out, filepath.Join(home, ".config", "aws-tools", "commands", "aws"))
-	require.Contains(t, out, filepath.Join(home, ".aws", "config"))
+	require.Contains(t, out, paths.CredsDir())
+	require.Contains(t, out, paths.SSOCacheDir())
+	require.Contains(t, out, paths.RunCommandsDir())
+	require.Contains(t, out, paths.AWSConfigFile())
 	// Unset AWS profile/region render as not-set, never blank.
 	require.Contains(t, out, "(not set)")
 }
 
 func TestConfig_MarksMissingVsExisting(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setConfigTestHome(t, home)
 	credsDir := filepath.Join(home, "creds")
 	require.NoError(t, os.MkdirAll(credsDir, 0o755))
 	t.Setenv("AWST_CREDS_DIR", credsDir)
@@ -60,7 +62,7 @@ func TestConfig_MarksMissingVsExisting(t *testing.T) {
 		if strings.Contains(l, credsDir) {
 			credsLine = l
 		}
-		if strings.Contains(l, filepath.Join(home, ".aws", "sso", "cache")) {
+		if strings.Contains(l, paths.SSOCacheDir()) {
 			ssoLine = l
 		}
 	}
@@ -71,7 +73,7 @@ func TestConfig_MarksMissingVsExisting(t *testing.T) {
 }
 
 func TestConfig_HonorsOverridesAndAWSEnv(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setConfigTestHome(t, t.TempDir())
 	t.Setenv("AWST_RUN_CMD_USER", "/opt/awst/cmds")
 	t.Setenv("AWS_PROFILE", "prod")
 	t.Setenv("AWS_REGION", "")
@@ -83,4 +85,13 @@ func TestConfig_HonorsOverridesAndAWSEnv(t *testing.T) {
 	require.Contains(t, out, "/opt/awst/cmds")
 	require.Contains(t, out, "prod")
 	require.Contains(t, out, "eu-west-1") // falls back to AWS_DEFAULT_REGION
+}
+
+func setConfigTestHome(t *testing.T, home string) {
+	t.Helper()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOMEDRIVE", "")
+	t.Setenv("HOMEPATH", "")
+	t.Setenv("APPDATA", filepath.Join(home, "AppData", "Roaming"))
 }

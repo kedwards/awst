@@ -67,6 +67,40 @@ func TestLoadSSOSession_ReturnsSessionFields(t *testing.T) {
 	}, got)
 }
 
+func TestLoadSSOSession_ProfileNotFound_ListsAvailable(t *testing.T) {
+	cfg := writeConfig(t, ssoSessionConfig) // defines [profile dev]
+
+	_, err := LoadSSOSession(context.Background(), "ps", cfg)
+
+	require.Error(t, err)
+	msg := err.Error()
+	require.Contains(t, msg, `profile "ps" not found`)
+	require.Contains(t, msg, cfg)
+	require.Contains(t, msg, "available profiles: dev")
+	require.Contains(t, msg, "aws configure sso")
+}
+
+func TestLoadSSOSession_NoConfigFile(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "config") // never created
+
+	_, err := LoadSSOSession(context.Background(), "dev", missing)
+
+	require.Error(t, err)
+	msg := err.Error()
+	require.Contains(t, msg, "no AWS config file at "+missing)
+	require.Contains(t, msg, "aws configure sso")
+}
+
+func TestLoadSSOSession_ProfileNotFound_BareHeaderHint(t *testing.T) {
+	// Common mistake: [ps] instead of [profile ps] in ~/.aws/config.
+	cfg := writeConfig(t, "[ps]\nsso_session = my-sso\n")
+
+	_, err := LoadSSOSession(context.Background(), "ps", cfg)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "[profile ps]")
+}
+
 func TestLoadSSOSession_LegacyFormRejected(t *testing.T) {
 	cfg := writeConfig(t, legacyOnlyConfig)
 

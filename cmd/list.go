@@ -19,8 +19,8 @@ type sessionsDeps struct {
 
 func defaultSessionsDeps() sessionsDeps {
 	return sessionsDeps{
-		scan: func() ([]sessions.Session, error) { return sessions.Scan("/proc") },
-		kill: defaultKiller,
+		scan: sessions.DefaultScan,
+		kill: sessions.Kill,
 	}
 }
 
@@ -29,8 +29,9 @@ func newListCmd(d sessionsDeps) *cobra.Command {
 		Use:   "list",
 		Short: "List active SSM sessions on this host",
 		Long: `List active SSM sessions started by awst connect (or the AWS CLI) on
-this host. Reads /proc to find running session-manager-plugin processes
-and pulls region / profile / target from their argv.`,
+this host. Uses the local platform's process inspection to find running
+session-manager-plugin processes and pulls region / profile / target
+from their argv.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			list, err := d.scan()

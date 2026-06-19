@@ -293,3 +293,46 @@ func TestConnect_HelpFlag(t *testing.T) {
 	require.Contains(t, out, "--profile")
 	require.Contains(t, out, "--region")
 }
+
+func TestLoadAWSConfig_RetriesWithoutInheritedProfileWhenEnvCredsExist(t *testing.T) {
+	configFile := filepath.Join(t.TempDir(), "config")
+	credsFile := filepath.Join(t.TempDir(), "credentials")
+	require.NoError(t, os.WriteFile(configFile, nil, 0o644))
+	require.NoError(t, os.WriteFile(credsFile, nil, 0o644))
+
+	t.Setenv("AWS_CONFIG_FILE", configFile)
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", credsFile)
+	t.Setenv("AWS_PROFILE", "t-io")
+	t.Setenv("AWS_DEFAULT_PROFILE", "t-io")
+	t.Setenv("AWS_REGION", "us-west-2")
+	t.Setenv("AWS_ACCESS_KEY_ID", "test-access-key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret-key")
+	t.Setenv("AWS_SESSION_TOKEN", "test-session-token")
+
+	cfg, err := loadAWSConfig(context.Background(), "", "")
+	require.NoError(t, err)
+	require.Equal(t, "us-west-2", cfg.Region)
+
+	creds, err := cfg.Credentials.Retrieve(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "test-access-key", creds.AccessKeyID)
+	require.Equal(t, "test-secret-key", creds.SecretAccessKey)
+	require.Equal(t, "test-session-token", creds.SessionToken)
+}
+
+func TestLoadAWSConfig_ExplicitProfileStillErrorsWhenMissing(t *testing.T) {
+	configFile := filepath.Join(t.TempDir(), "config")
+	credsFile := filepath.Join(t.TempDir(), "credentials")
+	require.NoError(t, os.WriteFile(configFile, nil, 0o644))
+	require.NoError(t, os.WriteFile(credsFile, nil, 0o644))
+
+	t.Setenv("AWS_CONFIG_FILE", configFile)
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", credsFile)
+	t.Setenv("AWS_REGION", "us-west-2")
+	t.Setenv("AWS_ACCESS_KEY_ID", "test-access-key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret-key")
+
+	_, err := loadAWSConfig(context.Background(), "t-io", "")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to get shared config profile, t-io")
+}

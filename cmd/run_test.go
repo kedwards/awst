@@ -12,6 +12,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kedwards/aws-tools/internal/runner"
 )
 
 type childCall struct {
@@ -119,8 +121,7 @@ func TestRun_SnippetExpandsAndIteratesAllProfiles(t *testing.T) {
 	require.Contains(t, out, "prod")
 
 	require.Len(t, child.calls, 2)
-	require.Equal(t, "sh", child.calls[0].args[0])
-	require.Equal(t, "-c", child.calls[0].args[1])
+	require.Equal(t, runner.ShellCommandArgs("placeholder")[:2], child.calls[0].args[:2])
 	require.Contains(t, child.calls[0].args[2], "--region us-east-1")
 	require.Equal(t, "AKIA-dev", child.calls[0].env["AWS_ACCESS_KEY_ID"])
 	require.Equal(t, "dev", child.calls[0].env["AWS_PROFILE"])

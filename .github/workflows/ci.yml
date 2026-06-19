@@ -27,3 +27,10 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - run: task ci
+
+      - name: Cross-compile release targets
+        run: |
+          for target in windows/amd64 windows/arm64 darwin/amd64 darwin/arm64; do
+            echo "building $target"
+            GOOS=${target%/*} GOARCH=${target#*/} go build ./...
+          done

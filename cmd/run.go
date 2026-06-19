@@ -8,13 +8,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/spf13/cobra"
 
+	"github.com/kedwards/aws-tools/internal/paths"
 	"github.com/kedwards/aws-tools/internal/runner"
 )
 
@@ -26,7 +26,7 @@ type runDeps struct {
 }
 
 func defaultRunDeps() runDeps {
-	defaultBase := filepath.Join(os.Getenv("HOME"), ".config", "aws-tools", "commands", "aws")
+	defaultBase := paths.RunCommandsDir()
 	return runDeps{
 		resolveCreds: defaultResolveCreds,
 		listProfiles: defaultListProfiles,
@@ -175,7 +175,7 @@ Examples:
 				if isExecutable {
 					childArgs = []string{scriptPath}
 				} else {
-					childArgs = []string{"sh", "-c", runner.Substitute(snippet, t.Profile, t.Region)}
+					childArgs = runner.ShellCommandArgs(runner.Substitute(snippet, t.Profile, t.Region))
 				}
 				if _, err := d.runChild(childArgs, env, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(),
@@ -268,7 +268,7 @@ func defaultResolveCreds(ctx context.Context, profile, region string) ([]string,
 func defaultListProfiles() ([]string, error) {
 	path := os.Getenv("AWS_CONFIG_FILE")
 	if path == "" {
-		path = filepath.Join(os.Getenv("HOME"), ".aws", "config")
+		path = paths.AWSConfigFile()
 	}
 	f, err := os.Open(path)
 	if err != nil {

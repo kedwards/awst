@@ -168,8 +168,8 @@ func TestLogin_SlowDownBumpsInterval(t *testing.T) {
 
 func TestLogin_ExpiredTokenFails(t *testing.T) {
 	oidc := &stubOIDC{
-		regOut: okRegister(),
-		devOut: okDevice(),
+		regOut:  okRegister(),
+		devOut:  okDevice(),
 		tokOuts: []*ssooidc.CreateTokenOutput{nil},
 		tokErrs: []error{&types.ExpiredTokenException{}},
 	}
@@ -184,8 +184,8 @@ func TestLogin_ExpiredTokenFails(t *testing.T) {
 
 func TestLogin_AccessDeniedFails(t *testing.T) {
 	oidc := &stubOIDC{
-		regOut: okRegister(),
-		devOut: okDevice(),
+		regOut:  okRegister(),
+		devOut:  okDevice(),
 		tokOuts: []*ssooidc.CreateTokenOutput{nil},
 		tokErrs: []error{&types.AccessDeniedException{}},
 	}

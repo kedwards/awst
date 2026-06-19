@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -38,8 +37,7 @@ standard AWS_PROFILE / AWS_REGION / AWS_DEFAULT_REGION chain.`,
 }
 
 func printConfig(w io.Writer) {
-	home := os.Getenv("HOME")
-	defaultCmd := filepath.Join(home, ".config", "aws-tools", "commands", "aws")
+	defaultCmd := paths.RunCommandsDir()
 
 	fmt.Fprintf(w, "awst %s\n\n", version)
 
@@ -55,7 +53,7 @@ func printConfig(w io.Writer) {
 	fmt.Fprintln(tw, "")
 
 	fmt.Fprintln(tw, "AWS")
-	fmt.Fprintf(tw, "  Config file\t%s\n", marked(filepath.Join(home, ".aws", "config")))
+	fmt.Fprintf(tw, "  Config file\t%s\n", marked(paths.AWSConfigFile()))
 	fmt.Fprintf(tw, "  Profile\t%s\n", orNotSet(os.Getenv("AWS_PROFILE")))
 	fmt.Fprintf(tw, "  Region\t%s\n", orNotSet(envOr("AWS_REGION", os.Getenv("AWS_DEFAULT_REGION"))))
 
