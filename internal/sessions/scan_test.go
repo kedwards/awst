@@ -69,6 +69,68 @@ func TestParseArgs_NotPlugin(t *testing.T) {
 	require.False(t, ok)
 }
 
+func TestParseArgs_WindowsExeSuffix(t *testing.T) {
+	argv := []string{
+		`C:\Program Files\Amazon\SessionManagerPlugin\bin\session-manager-plugin.exe`,
+		`{}`,
+		"us-west-2",
+		"StartSession",
+		"prod",
+		`{"Target":"i-win"}`,
+		"https://ssm.us-west-2.amazonaws.com",
+	}
+	s, ok := ParseArgs(argv)
+	require.True(t, ok)
+	require.Equal(t, "i-win", s.Target)
+	require.Equal(t, "prod", s.Profile)
+}
+
+func TestParseCimProcesses(t *testing.T) {
+	// A splitter keyed on the (here arbitrary) CommandLine string, standing in
+	// for CommandLineToArgvW so this runs on any OS.
+	split := func(cmdline string) []string {
+		switch cmdline {
+		case "plugin-a":
+			return []string{"session-manager-plugin.exe", `{}`, "us-east-1", "StartSession", "dev", `{"Target":"i-a"}`, "ep"}
+		case "plugin-b":
+			return []string{"session-manager-plugin.exe", `{}`, "eu-west-1", "StartPortForwardingSessionToRemoteHost", "prod", `{"Target":"i-b"}`, "ep"}
+		default:
+			return []string{"notepad.exe"} // not the plugin → filtered out
+		}
+	}
+
+	t.Run("array of matches", func(t *testing.T) {
+		data := []byte(`[{"ProcessId":111,"CommandLine":"plugin-a"},{"ProcessId":222,"CommandLine":"plugin-b"},{"ProcessId":333,"CommandLine":"other"}]`)
+		got, err := parseCimProcesses(data, split)
+		require.NoError(t, err)
+		require.Equal(t, []Session{
+			{PID: 111, Type: "shell", Target: "i-a", Region: "us-east-1", Profile: "dev"},
+			{PID: 222, Type: "port-forward", Target: "i-b", Region: "eu-west-1", Profile: "prod"},
+		}, got)
+	})
+
+	t.Run("single object (ConvertTo-Json unwraps one match)", func(t *testing.T) {
+		got, err := parseCimProcesses([]byte(`{"ProcessId":111,"CommandLine":"plugin-a"}`), split)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		require.Equal(t, 111, got[0].PID)
+	})
+
+	t.Run("empty and null mean no sessions", func(t *testing.T) {
+		for _, data := range [][]byte{[]byte(""), []byte("  \n"), []byte("null")} {
+			got, err := parseCimProcesses(data, split)
+			require.NoError(t, err)
+			require.Empty(t, got)
+		}
+	})
+
+	t.Run("null CommandLine (access denied) is skipped", func(t *testing.T) {
+		got, err := parseCimProcesses([]byte(`{"ProcessId":111,"CommandLine":null}`), split)
+		require.NoError(t, err)
+		require.Empty(t, got)
+	})
+}
+
 func TestParseArgs_WrongLength(t *testing.T) {
 	argv := []string{"session-manager-plugin", "only", "three", "args"}
 	_, ok := ParseArgs(argv)
