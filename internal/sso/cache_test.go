@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -17,6 +18,9 @@ func newTestCache(t *testing.T) *Cache {
 }
 
 func TestCache_Save_WritesFileWithMode0600(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix file modes aren't represented on windows")
+	}
 	c := newTestCache(t)
 
 	require.NoError(t, c.Save("my-sso", Token{
@@ -71,6 +75,9 @@ func TestCache_Path_MatchesSDKStandardLocation(t *testing.T) {
 }
 
 func TestCache_Save_CreatesDirWithMode0700(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix file modes aren't represented on windows")
+	}
 	c := newTestCache(t)
 	require.NoError(t, c.Save("my-sso", Token{AccessToken: "atk", ExpiresAt: time.Now()}))
 

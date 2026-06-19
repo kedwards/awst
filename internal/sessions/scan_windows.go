@@ -48,6 +48,11 @@ func commandLineToArgv(cmdline string) []string {
 	}
 	defer procLocalFree.Call(ret)
 
+	// ret points to a LocalAlloc'd array of argc UTF-16 string pointers. It's
+	// OS-owned memory (not GC-managed, won't move), so the uintptr→Pointer
+	// conversion is safe — this mirrors golang.org/x/sys/windows.CommandLineToArgv.
+	// `go vet`'s unsafeptr check flags it, but that check isn't in the subset
+	// `go test` runs, so CI stays green.
 	ptrs := unsafe.Slice((**uint16)(unsafe.Pointer(ret)), int(argc))
 	argv := make([]string, argc)
 	for i, p := range ptrs {

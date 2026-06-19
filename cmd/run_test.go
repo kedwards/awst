@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -104,7 +105,10 @@ func TestRun_ListsCommandsWhenNoArgs(t *testing.T) {
 	require.Contains(t, out, "vpc-cidrs")
 	require.Contains(t, out, "Show VPC CIDRs")
 	require.Contains(t, out, "instances")
-	require.Contains(t, out, "*", "executables should be marked")
+	if runtime.GOOS != "windows" {
+		// The "*" marks executables (Perm()&0o111); always 0 on windows.
+		require.Contains(t, out, "*", "executables should be marked")
+	}
 	require.Empty(t, child.calls, "list mode should not invoke child")
 }
 
@@ -155,6 +159,9 @@ func TestRun_InlineCommand(t *testing.T) {
 }
 
 func TestRun_ExecutableNoFilter_RunsOnceWithoutIteration(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("executable-bit detection is unix-only (windows support is the P2 run-semantics gap)")
+	}
 	d := t.TempDir()
 	scriptPath := writeFileT(t, d, "self-iter", "#!/bin/sh\necho I handle iteration myself\n", true)
 	child := &childRecorder{}
@@ -168,6 +175,9 @@ func TestRun_ExecutableNoFilter_RunsOnceWithoutIteration(t *testing.T) {
 }
 
 func TestRun_ExecutableWithFilter_IteratesPerProfile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("executable-bit detection is unix-only (windows support is the P2 run-semantics gap)")
+	}
 	d := t.TempDir()
 	scriptPath := writeFileT(t, d, "per-profile", "#!/bin/sh\necho hi\n", true)
 	child := &childRecorder{}

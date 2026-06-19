@@ -34,3 +34,20 @@ jobs:
             echo "building $target"
             GOOS=${target%/*} GOARCH=${target#*/} go build ./...
           done
+
+  # Runs the unit tests natively on Windows so the windows-tagged code
+  # (kill_windows, scan_windows + CommandLineToArgvW, path resolution) is
+  # actually exercised, not just cross-compiled. The bash acceptance scripts
+  # stay on the ubuntu job — they're unix-only.
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - run: go build ./...
+      - run: go test ./...

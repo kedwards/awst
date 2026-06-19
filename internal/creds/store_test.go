@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -16,6 +17,9 @@ func newTestStore(t *testing.T) *Store {
 }
 
 func TestStore_CreatesDirWithMode0700(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix file modes aren't represented on windows")
+	}
 	s := newTestStore(t)
 
 	err := s.Save("dev", Credentials{AccessKeyID: "AKIA", SecretAccessKey: "s", SessionToken: "t"})
@@ -27,6 +31,9 @@ func TestStore_CreatesDirWithMode0700(t *testing.T) {
 }
 
 func TestStore_WritesFileWithMode0600(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix file modes aren't represented on windows")
+	}
 	s := newTestStore(t)
 
 	err := s.Save("dev", Credentials{AccessKeyID: "AKIA", SecretAccessKey: "s", SessionToken: "t"})
