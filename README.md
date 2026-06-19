@@ -23,7 +23,7 @@ sourcing, no `assume` shell-out.
 
 ## Install
 
-**Pre-built binary** (linux / darwin × amd64 / arm64):
+**Pre-built binary** (linux / darwin / windows × amd64 / arm64):
 
 ```sh
 # Pick the asset matching your OS/arch from the latest release
@@ -208,9 +208,9 @@ Out of scope for this slice (still in the bash `awst connect` on
 
 ### `awst list` and `awst kill`
 
-Inspect and terminate SSM sessions running on this host. `list` reads
-`/proc` for `session-manager-plugin` processes and pulls
-region / profile / target from their argv — no AWS calls needed.
+Inspect and terminate `session-manager-plugin` processes running on this
+host, pulling region / profile / target from their argv — no AWS calls
+needed.
 
 ```sh
 awst list                       # show active sessions
@@ -219,11 +219,12 @@ awst kill 12345 67890           # terminate several
 awst kill --all                 # terminate every active SSM session
 ```
 
-Each kill does `SIGTERM`, waits 250ms, then escalates to `SIGKILL` if
-the process is still alive.
+Process discovery is per-OS: Linux reads `/proc`; Windows queries
+`Win32_Process` via CIM (`Get-CimInstance`) and splits each command line
+with `CommandLineToArgvW`. macOS isn't wired up yet (would use `ps`).
 
-Linux-only for now (reads `/proc`). macOS support lands when someone
-needs it.
+Termination is per-OS too: unix does `SIGTERM`, waits 250ms, then
+escalates to `SIGKILL`; Windows uses the OS process kill.
 
 ### `awst exec`
 
@@ -320,7 +321,7 @@ internal/sso/       config (sso_session lookup), cache (token write),
                     login (device-flow orchestration)
 internal/connect/   describe (EC2/SSM cross-join + Name resolution),
                     session (StartSession + plugin exec)
-internal/sessions/  /proc-scan for active session-manager-plugin
+internal/sessions/  per-OS scan for active session-manager-plugin
                     processes (powers `awst list` / `awst kill`)
 internal/ssmexec/   SendCommand + poll loop + pattern expansion
                     (powers `awst exec`)
@@ -348,7 +349,7 @@ Extract a shared package only when a second slice forces it.
 - [x] `awst creds {store,use,list,clear}`
 - [x] `awst login` — embedded SSO device flow (replaces `aws sso login`)
 - [x] `awst connect` — EC2 + SSM shell session + port-forwarding (ad-hoc + saved connections; codebuild still TODO)
-- [x] `awst list` / `kill` — local SSM session inspection (Linux /proc only)
+- [x] `awst list` / `kill` — local SSM session inspection (Linux /proc, Windows CIM; macOS TODO)
 - [x] `awst exec` — SendCommand across one/many instances
 - [x] `awst run` — execute snippets across AWS profiles
 - [x] `awst config` — print resolved configuration
