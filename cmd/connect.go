@@ -15,12 +15,14 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/kedwards/aws-tools/internal/connect"
+	"github.com/kedwards/aws-tools/internal/ssmexec"
 )
 
 type ssmClients struct {
 	SSM        connect.SSMClient
 	EC2        connect.EC2Client
 	SSMSession connect.SSMSessionClient
+	Cmd        ssmexec.CmdClient
 	Region     string
 	Profile    string
 }
@@ -54,6 +56,7 @@ func defaultConnectDeps() connectDeps {
 				SSM:        ssmClient,
 				EC2:        ec2.NewFromConfig(cfg),
 				SSMSession: ssmClient,
+				Cmd:        ssmClient,
 				Region:     cfg.Region,
 				Profile:    profile,
 			}, nil

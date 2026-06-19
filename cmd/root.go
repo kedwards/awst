@@ -20,6 +20,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newCredsCmd(defaultDeps()))
 	root.AddCommand(newLoginCmd(defaultLoginDeps()))
 	root.AddCommand(newConnectCmd(defaultConnectDeps()))
+	root.AddCommand(newExecCmd(defaultExecDeps()))
 	sd := defaultSessionsDeps()
 	root.AddCommand(newListCmd(sd))
 	root.AddCommand(newKillCmd(sd))

@@ -31,6 +31,7 @@ tasks:
       - bash test/acceptance/login.sh
       - bash test/acceptance/connect.sh
       - bash test/acceptance/sessions.sh
+      - bash test/acceptance/exec.sh
 
   ci:
     desc: Run all checks (CI)

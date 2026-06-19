@@ -4,9 +4,9 @@ CLI for AWS shell + session work. A Go rewrite of the original Bash
 toolkit (see branch `main`); the port lives on branch `go-port` while
 commands are migrated one vertical slice at a time.
 
-**Status:** slices 1–4 — `awst creds` + `awst login` + `awst connect`
-+ `awst list`/`kill`. Other commands (`exec`, `run`, `config`, `update`)
-still live in the bash toolkit on `main`.
+**Status:** slices 1–5 — `awst creds` + `awst login` + `awst connect`
++ `awst list`/`kill` + `awst exec`. Other commands (`run`, `config`,
+`update`) still live in the bash toolkit on `main`.
 
 ## Why a Go port
 
@@ -159,6 +159,31 @@ the process is still alive.
 Linux-only for now (reads `/proc`). macOS support lands when someone
 needs it.
 
+### `awst exec`
+
+Run a shell command on one or more SSM-managed instances via
+`ssm:SendCommand`, polling `GetCommandInvocation` until every target
+reaches a terminal status. Per-instance output is printed in input
+order; exit is non-zero if any target failed.
+
+```sh
+awst exec -c 'uptime' -i web-1
+awst exec -c 'df -h' -i web,db,i-0123abc
+awst exec -c 'systemctl restart nginx' -i web -p prod -r us-east-2
+```
+
+`-i` is a comma-separated mix of Name-tag substring patterns and
+`i-…` IDs. Each piece is expanded against the live SSM inventory; a
+no-match for any piece is a hard error (no silent partial runs).
+
+Output: stdout/stderr come from `GetCommandInvocation`, which caps at
+24 KB stdout / 8 KB stderr per instance. Larger output would need S3
+configuration, not wired up yet.
+
+The command runs under `AWS-RunShellScript` (default `/bin/sh`).
+Include your own shebang or wrap with `bash -c '...'` if you need bash
+features. PowerShell targets aren't supported yet.
+
 ## Development
 
 TDD discipline: each package has tests in the same directory, written
@@ -173,7 +198,8 @@ task ci                 # both of the above
 Layout:
 
 ```
-cmd/                cobra commands (root, creds, login, connect, list, kill)
+cmd/                cobra commands (root, creds, login, connect, list,
+                    kill, exec)
 internal/paths/     XDG / AWST_CREDS_DIR + SSO cache dir resolution
 internal/creds/     store (file I/O), exporter (eval output), resolver (SDK)
 internal/sso/       config (sso_session lookup), cache (token write),
@@ -182,6 +208,8 @@ internal/connect/   describe (EC2/SSM cross-join + Name resolution),
                     session (StartSession + plugin exec)
 internal/sessions/  /proc-scan for active session-manager-plugin
                     processes (powers `awst list` / `awst kill`)
+internal/ssmexec/   SendCommand + poll loop + pattern expansion
+                    (powers `awst exec`)
 test/acceptance/    no-AWS smoke that pins the eval-able output contract
 ```
 
@@ -205,7 +233,7 @@ Extract a shared package only when a second slice forces it.
 - [x] `awst login` — embedded SSO device flow (replaces `aws sso login`)
 - [x] `awst connect` — EC2 + SSM shell session (config/port-forward + codebuild still TODO)
 - [x] `awst list` / `kill` — local SSM session inspection (Linux /proc only)
-- [ ] `awst exec` — run command across one/many instances
+- [x] `awst exec` — SendCommand across one/many instances
 - [ ] `awst run` — execute snippets across AWS profiles
 - [ ] `awst config` — print resolved configuration
 - [ ] Distribution: GoReleaser, signed binaries
