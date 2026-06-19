@@ -159,8 +159,11 @@ awst connect web-prod --forward 5432:5432
 awst connect web --forward 8428,9093 --host mon.internal
 ```
 
-No `--host` uses `AWS-StartPortForwardingSession` (a port on the
-instance); `--host` uses `AWS-StartPortForwardingSessionToRemoteHost`.
+Both cases use `AWS-StartPortForwardingSessionToRemoteHost` (the same
+document the AWS CLI uses). With no `--host` the target defaults to
+`localhost` — a service terminating on the instance itself (e.g.
+AlertManager). With `--host` it terminates at a remote endpoint reachable
+from the instance (e.g. an RDS database).
 
 #### Saved connections
 

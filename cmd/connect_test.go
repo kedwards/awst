@@ -227,9 +227,9 @@ func TestConnect_AdHocForward_SinglePort(t *testing.T) {
 
 	_, _, err := runConnect(t, d, "connect", "web", "--forward", "15432:5432")
 	require.NoError(t, err)
-	// Local-forwarding document, no host param.
-	require.Equal(t, "AWS-StartPortForwardingSession", aws.ToString(ssmStub.startCall.DocumentName))
-	require.Equal(t, map[string][]string{"portNumber": {"5432"}, "localPortNumber": {"15432"}}, ssmStub.startCall.Parameters)
+	// Always the RemoteHost document; no --host defaults to localhost.
+	require.Equal(t, "AWS-StartPortForwardingSessionToRemoteHost", aws.ToString(ssmStub.startCall.DocumentName))
+	require.Equal(t, map[string][]string{"host": {"localhost"}, "portNumber": {"5432"}, "localPortNumber": {"15432"}}, ssmStub.startCall.Parameters)
 	require.Len(t, runner.gotArgs, 6)
 }
 

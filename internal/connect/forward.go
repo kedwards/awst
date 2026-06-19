@@ -10,46 +10,45 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 )
 
-// PortForward is one local→remote port mapping. Host is empty for a port
-// on the instance itself (AWS-StartPortForwardingSession), or a hostname
-// reachable from the instance — e.g. an RDS endpoint — for remote-host
-// forwarding (AWS-StartPortForwardingSessionToRemoteHost).
+// PortForward is one local→remote port mapping. Host is the endpoint the
+// session connects to, as seen from the instance: empty (or "localhost")
+// for a service terminating on the instance itself, or a hostname
+// reachable from it — e.g. an RDS endpoint — for a remote target.
+//
+// We always use AWS-StartPortForwardingSessionToRemoteHost (the document
+// the AWS CLI and bash toolkit use), with host defaulting to localhost.
+// That single document covers both cases: a service terminating on the
+// instance (host=localhost) and one terminating at a remote host
+// (host=<endpoint>). The earlier no-host AWS-StartPortForwardingSession
+// split was a regression — remote targets never connected.
 type PortForward struct {
 	Host       string
 	LocalPort  string
 	RemotePort string
 }
 
-const (
-	docPortForward       = "AWS-StartPortForwardingSession"
-	docPortForwardRemote = "AWS-StartPortForwardingSessionToRemoteHost"
-)
+const docPortForward = "AWS-StartPortForwardingSessionToRemoteHost"
 
-func (pf PortForward) document() string {
-	if pf.Host != "" {
-		return docPortForwardRemote
+// host is the connection target, defaulting to the instance's own
+// localhost when unset.
+func (pf PortForward) host() string {
+	if pf.Host == "" {
+		return "localhost"
 	}
-	return docPortForward
+	return pf.Host
 }
 
 func (pf PortForward) parameters() map[string][]string {
-	p := map[string][]string{
+	return map[string][]string{
+		"host":            {pf.host()},
 		"portNumber":      {pf.RemotePort},
 		"localPortNumber": {pf.LocalPort},
 	}
-	if pf.Host != "" {
-		p["host"] = []string{pf.Host}
-	}
-	return p
 }
 
 // String is the human label used in "Forwarding ..." log lines.
 func (pf PortForward) String() string {
-	dst := pf.RemotePort
-	if pf.Host != "" {
-		dst = pf.Host + ":" + pf.RemotePort
-	}
-	return fmt.Sprintf("localhost:%s -> %s", pf.LocalPort, dst)
+	return fmt.Sprintf("localhost:%s -> %s:%s", pf.LocalPort, pf.host(), pf.RemotePort)
 }
 
 // ParseForwardSpec parses a comma-separated list of port mappings. Each
@@ -97,7 +96,7 @@ func validPort(s string) error {
 func StartPortForward(ctx context.Context, s SSMSessionClient, runner PluginRunner, pf PortForward, instanceID, region, profile, endpoint string) error {
 	in := &ssm.StartSessionInput{
 		Target:       aws.String(instanceID),
-		DocumentName: aws.String(pf.document()),
+		DocumentName: aws.String(docPortForward),
 		Parameters:   pf.parameters(),
 	}
 	out, err := s.StartSession(ctx, in)

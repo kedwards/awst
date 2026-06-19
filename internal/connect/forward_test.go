@@ -43,9 +43,16 @@ func TestParseForwardSpec(t *testing.T) {
 	})
 }
 
-func TestPortForward_DocumentSelection(t *testing.T) {
-	require.Equal(t, docPortForward, PortForward{LocalPort: "5432", RemotePort: "5432"}.document())
-	require.Equal(t, docPortForwardRemote, PortForward{Host: "db.internal", LocalPort: "5432", RemotePort: "5432"}.document())
+func TestPortForward_Parameters(t *testing.T) {
+	// No host → defaults to localhost (service on the instance itself).
+	require.Equal(t, map[string][]string{
+		"host": {"localhost"}, "portNumber": {"5432"}, "localPortNumber": {"5432"},
+	}, PortForward{LocalPort: "5432", RemotePort: "5432"}.parameters())
+
+	// Explicit host → remote target (e.g. RDS).
+	require.Equal(t, map[string][]string{
+		"host": {"db.internal"}, "portNumber": {"5432"}, "localPortNumber": {"15432"},
+	}, PortForward{Host: "db.internal", LocalPort: "15432", RemotePort: "5432"}.parameters())
 }
 
 type recordSSM struct {
@@ -62,19 +69,19 @@ type recordRunner struct{ args []string }
 
 func (r *recordRunner) Run(args []string) error { r.args = args; return nil }
 
-func TestStartPortForward_LocalDoc(t *testing.T) {
+func TestStartPortForward_InstanceLocal(t *testing.T) {
 	ssmStub := &recordSSM{out: &ssm.StartSessionOutput{
 		SessionId: aws.String("s-1"), StreamUrl: aws.String("wss://x"), TokenValue: aws.String("tok"),
 	}}
 	runner := &recordRunner{}
-	pf := PortForward{LocalPort: "15432", RemotePort: "5432"}
+	pf := PortForward{LocalPort: "15432", RemotePort: "5432"} // no host
 
 	err := StartPortForward(context.Background(), ssmStub, runner, pf, "i-abc", "us-east-1", "dev", "https://ssm.us-east-1.amazonaws.com")
 	require.NoError(t, err)
 
-	// API call uses the local-forwarding document, no host param.
+	// Always the RemoteHost document, host defaulting to localhost.
 	require.Equal(t, docPortForward, aws.ToString(ssmStub.in.DocumentName))
-	require.Equal(t, map[string][]string{"portNumber": {"5432"}, "localPortNumber": {"15432"}}, ssmStub.in.Parameters)
+	require.Equal(t, []string{"localhost"}, ssmStub.in.Parameters["host"])
 
 	// Plugin gets the 6-arg shape; arg[4] carries DocumentName + Parameters.
 	require.Len(t, runner.args, 6)
@@ -87,7 +94,7 @@ func TestStartPortForward_LocalDoc(t *testing.T) {
 	require.Equal(t, docPortForward, params["DocumentName"])
 }
 
-func TestStartPortForward_RemoteHostDoc(t *testing.T) {
+func TestStartPortForward_RemoteHost(t *testing.T) {
 	ssmStub := &recordSSM{out: &ssm.StartSessionOutput{SessionId: aws.String("s")}}
 	runner := &recordRunner{}
 	pf := PortForward{Host: "rds.internal", LocalPort: "5432", RemotePort: "5432"}
@@ -95,6 +102,6 @@ func TestStartPortForward_RemoteHostDoc(t *testing.T) {
 	err := StartPortForward(context.Background(), ssmStub, runner, pf, "i-abc", "us-west-2", "prod", "https://ssm.us-west-2.amazonaws.com")
 	require.NoError(t, err)
 
-	require.Equal(t, docPortForwardRemote, aws.ToString(ssmStub.in.DocumentName))
+	require.Equal(t, docPortForward, aws.ToString(ssmStub.in.DocumentName))
 	require.Equal(t, []string{"rds.internal"}, ssmStub.in.Parameters["host"])
 }
