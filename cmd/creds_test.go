@@ -100,6 +100,23 @@ func TestCredsStore_WritesAndPrintsExports(t *testing.T) {
 	require.Equal(t, "us-east-1", loaded.Region)
 }
 
+func TestCredsStore_PowerShellShell(t *testing.T) {
+	d := testDeps(t)
+	out, _, err := runCmd(t, d, "creds", "store", "dev", "--shell", "powershell")
+	require.NoError(t, err)
+	require.Contains(t, out, `$env:AWS_ACCESS_KEY_ID = 'AKIA-from-stub'`)
+	require.Contains(t, out, `$env:AWS_PROFILE = 'dev'`)
+	require.NotContains(t, out, "export ")
+}
+
+func TestCredsUse_InvalidShell(t *testing.T) {
+	d := testDeps(t)
+	require.NoError(t, d.store.Save("dev", creds.Credentials{AccessKeyID: "a", SecretAccessKey: "s", SessionToken: "t"}))
+	_, _, err := runCmd(t, d, "creds", "use", "dev", "--shell", "fish")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown shell")
+}
+
 func TestCredsStore_ProviderError(t *testing.T) {
 	sentinel := errors.New("SSO token expired")
 	d := testDeps(t)

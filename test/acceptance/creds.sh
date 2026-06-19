@@ -34,6 +34,16 @@ echo "$out" | grep -qx 'export AWS_ACCESS_KEY_ID="AKIA-FIXTURE"' || fail "use AK
 echo "$out" | grep -qx 'export AWS_SESSION_TOKEN="fixture-token=="' || fail "use token line: $out"
 echo "$out" | grep -qx 'export AWS_PROFILE="dev"' || fail "use profile line: $out"
 
+# 3b. --shell powershell emits $env: assignments (consumed via `| iex`)
+out=$("$BIN" creds use dev --shell powershell)
+echo "$out" | grep -qx "\$env:AWS_ACCESS_KEY_ID = 'AKIA-FIXTURE'" || fail "powershell AKI line: $out"
+if echo "$out" | grep -q "export "; then fail "powershell output should not contain export: $out"; fi
+
+# 3c. unknown --shell is rejected
+if "$BIN" creds use dev --shell fish 2>/dev/null; then
+  fail "unknown --shell should fail"
+fi
+
 # 4. clear named profile
 "$BIN" creds clear dev | grep -q "dev" || fail "clear message missing profile"
 [[ ! -f "$dir/dev.env" ]] || fail "clear did not delete file"
