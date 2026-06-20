@@ -85,6 +85,25 @@ func TestParseArgs_WindowsExeSuffix(t *testing.T) {
 	require.Equal(t, "prod", s.Profile)
 }
 
+func TestParsePsOutput(t *testing.T) {
+	// `ps -axww -o pid=,command=` style output: leading-padded PID + command.
+	out := []byte(
+		"  501 /usr/local/bin/session-manager-plugin {\"SessionId\":\"s\"} us-east-1 StartSession dev {\"Target\":\"i-a\"} https://ssm.us-east-1.amazonaws.com\n" +
+			"  777 session-manager-plugin {\"x\":1} eu-west-1 StartPortForwardingSessionToRemoteHost prod {\"Target\":\"i-b\"} https://ep\n" +
+			"  888 /usr/sbin/sshd -D\n" +
+			"\n")
+	got := parsePsOutput(out)
+	require.Equal(t, []Session{
+		{PID: 501, Type: "shell", Target: "i-a", Region: "us-east-1", Profile: "dev"},
+		{PID: 777, Type: "port-forward", Target: "i-b", Region: "eu-west-1", Profile: "prod"},
+	}, got)
+}
+
+func TestParsePsOutput_Empty(t *testing.T) {
+	require.Empty(t, parsePsOutput(nil))
+	require.Empty(t, parsePsOutput([]byte("  123 /usr/sbin/sshd -D\n")))
+}
+
 func TestParseCimProcesses(t *testing.T) {
 	// A splitter keyed on the (here arbitrary) CommandLine string, standing in
 	// for CommandLineToArgvW so this runs on any OS.

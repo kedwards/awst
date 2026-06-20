@@ -59,7 +59,7 @@ Requires Go 1.26+ to build from source.
 | `exec` | ✅ | ✅ | ✅ | pure AWS API, no local shell |
 | `config` | ✅ | ✅ | ✅ | |
 | `run` | ✅ | ✅ | ⚠️ | snippets are POSIX shell — Windows needs `sh`/`bash` (Git Bash / WSL) on `PATH` |
-| `list` / `kill` | ✅ | ❌ | ✅ | Linux via `/proc`, Windows via CIM; macOS not yet wired up |
+| `list` / `kill` | ✅ | ✅ | ✅ | Linux via `/proc`, macOS via `ps`, Windows via CIM |
 
 ✅ supported · ⚠️ works with a prerequisite · ❌ not yet implemented
 
@@ -233,9 +233,9 @@ awst kill 12345 67890           # terminate several
 awst kill --all                 # terminate every active SSM session
 ```
 
-Process discovery is per-OS: Linux reads `/proc`; Windows queries
-`Win32_Process` via CIM (`Get-CimInstance`) and splits each command line
-with `CommandLineToArgvW`. macOS isn't wired up yet (would use `ps`).
+Process discovery is per-OS: Linux reads `/proc`; macOS shells out to
+`ps -axww -o pid=,command=`; Windows queries `Win32_Process` via CIM
+(`Get-CimInstance`) and splits each command line with `CommandLineToArgvW`.
 
 Termination is per-OS too: unix does `SIGTERM`, waits 250ms, then
 escalates to `SIGKILL`; Windows uses the OS process kill.
@@ -369,7 +369,7 @@ Extract a shared package only when a second slice forces it.
 - [x] `awst creds {store,use,list,clear}`
 - [x] `awst login` — embedded SSO device flow (replaces `aws sso login`)
 - [x] `awst connect` — EC2 + SSM shell session + port-forwarding (ad-hoc + saved connections; codebuild still TODO)
-- [x] `awst list` / `kill` — local SSM session inspection (Linux /proc, Windows CIM; macOS TODO)
+- [x] `awst list` / `kill` — local SSM session inspection (Linux /proc, macOS ps, Windows CIM)
 - [x] `awst exec` — SendCommand across one/many instances
 - [x] `awst run` — execute snippets across AWS profiles
 - [x] `awst config` — print resolved configuration
