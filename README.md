@@ -49,6 +49,20 @@ Requires Go 1.26+ to build from source.
 
 ## Usage
 
+### Platform support
+
+| Command | Linux | macOS | Windows | Notes |
+|---|:---:|:---:|:---:|---|
+| `creds` | ✅ | ✅ | ✅ | `--shell powershell` for PowerShell output (`\| iex`) |
+| `login` | ✅ | ✅ | ✅ | browser-open works on all three (`--no-browser` to skip) |
+| `connect` (shell + `--forward`) | ✅ | ✅ | ✅ | needs `session-manager-plugin` on `PATH` |
+| `exec` | ✅ | ✅ | ✅ | pure AWS API, no local shell |
+| `config` | ✅ | ✅ | ✅ | |
+| `run` | ✅ | ✅ | ⚠️ | snippets are POSIX shell — Windows needs `sh`/`bash` (Git Bash / WSL) on `PATH` |
+| `list` / `kill` | ✅ | ❌ | ✅ | Linux via `/proc`, Windows via CIM; macOS not yet wired up |
+
+✅ supported · ⚠️ works with a prerequisite · ❌ not yet implemented
+
 ### `awst creds`
 
 Manage AWS credentials per profile. The store / use commands print
