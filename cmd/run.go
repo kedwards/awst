@@ -23,6 +23,7 @@ type runDeps struct {
 	listProfiles func() ([]string, error)
 	runChild     func(args []string, env []string, stdout, stderr io.Writer) (int, error)
 	getenv       func(string) string
+	shell        func() (string, error) // POSIX shell for snippets/inline
 }
 
 func defaultRunDeps() runDeps {
@@ -31,6 +32,7 @@ func defaultRunDeps() runDeps {
 		resolveCreds: defaultResolveCreds,
 		listProfiles: defaultListProfiles,
 		runChild:     defaultRunChild,
+		shell:        runner.POSIXShell,
 		getenv: func(k string) string {
 			v := os.Getenv(k)
 			if v != "" {
@@ -145,7 +147,7 @@ Examples:
 			// once up front (on Windows this finds Git Bash / WSL or errors).
 			shell := ""
 			if !isExecutable {
-				shell, err = runner.POSIXShell()
+				shell, err = d.shell()
 				if err != nil {
 					return err
 				}

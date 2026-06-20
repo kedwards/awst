@@ -81,6 +81,7 @@ func newTestDeps(t *testing.T, baseDir string, child *childRecorder) runDeps {
 		},
 		listProfiles: func() ([]string, error) { return []string{"dev", "prod"}, nil },
 		runChild:     child.run,
+		shell:        func() (string, error) { return "sh", nil },
 		getenv: func(k string) string {
 			if k == "AWST_RUN_CMD_BASE" || k == "AWST_RUN_CMD_USER" {
 				return baseDir
@@ -154,6 +155,20 @@ func TestRun_InlineCommand(t *testing.T) {
 	require.Len(t, child.calls, 1)
 	require.Equal(t, "aws s3 ls", child.calls[0].args[2])
 	require.Equal(t, "dev", child.calls[0].env["AWS_PROFILE"])
+}
+
+func TestRun_NoPOSIXShell_ErrorsClearly(t *testing.T) {
+	// Mirrors Windows without Git Bash/WSL: snippets can't run.
+	d := t.TempDir()
+	writeFileT(t, d, "snip", "aws s3 ls\n", false)
+	child := &childRecorder{}
+	deps := newTestDeps(t, d, child)
+	deps.shell = func() (string, error) { return "", errors.New("no POSIX shell on PATH") }
+
+	_, _, err := runRunCmd(t, deps, "run", "-d", d, "snip", "dev")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "POSIX shell")
+	require.Empty(t, child.calls, "nothing runs without a shell")
 }
 
 func TestRun_ExecutableNoFilter_RunsOnceWithoutIteration(t *testing.T) {
