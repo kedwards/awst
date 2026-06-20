@@ -1,12 +1,16 @@
-# aws-tools (Go port)
+# aws-tools
 
-CLI for AWS shell + session work. A Go rewrite of the original Bash
-toolkit (see branch `main`); the port lives on branch `go-port` while
-commands are migrated one vertical slice at a time.
+`awst` — a CLI for AWS shell + session work: SSO login, credential
+injection, SSM shell/port-forward sessions, and running commands across
+profiles. Cross-platform (Linux, macOS, Windows).
 
-**Status:** slices 1–9 — `awst creds` + `awst login` + `awst connect`
-(shell + port-forwarding) + `awst list`/`kill` + `awst exec` + `awst run`
-+ `awst config`.
+> **This was a Bash toolkit through v2.5.2; it is now a single Go binary.**
+> The Bash version is deprecated and unmaintained — its final state is
+> tagged [`bash-final`](https://github.com/kedwards/aws-tools/tree/bash-final)
+> (and the `v2.x` release tags). All current development is on `main`.
+
+**Commands:** `creds` · `login` · `connect` (shell + port-forward) ·
+`exec` · `run` · `list`/`kill` · `config`.
 `awst update` is intentionally not ported: a single static binary
 released via GoReleaser doesn't need the bash tarball+rsync updater —
 use your package manager, `go install`, or the GitHub release assets.
@@ -40,7 +44,7 @@ go install github.com/kedwards/aws-tools@latest
 **From source:**
 
 ```sh
-git clone -b go-port https://github.com/kedwards/aws-tools.git
+git clone https://github.com/kedwards/aws-tools.git
 cd aws-tools
 task build              # → dist/awst
 ```
@@ -373,7 +377,7 @@ Extract a shared package only when a second slice forces it.
 - [x] `awst exec` — SendCommand across one/many instances
 - [x] `awst run` — execute snippets across AWS profiles
 - [x] `awst config` — print resolved configuration
-- [x] CI workflow — GitHub Actions runs `task ci` on PRs to `go-port`
+- [x] CI workflow — GitHub Actions runs `task ci` + native windows tests on PRs to `main`
 - [x] Distribution: GoReleaser (linux/darwin × amd64/arm64; signing TODO)
 
 ## License
