@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kedwards/awst/internal/sessions"
+	"github.com/kedwards/awst/v3/internal/sessions"
 )
 
 type killRecorder struct {

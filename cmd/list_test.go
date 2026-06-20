@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kedwards/awst/internal/sessions"
+	"github.com/kedwards/awst/v3/internal/sessions"
 )
 
 func writeFakeProc(t *testing.T, entries map[int][]string) string {

@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/kedwards/awst/internal/sessions"
+	"github.com/kedwards/awst/v3/internal/sessions"
 )
 
 // sessionsDeps is shared by list and kill: both look up the local plugin

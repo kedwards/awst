@@ -38,7 +38,7 @@ curl -sSL https://github.com/kedwards/awst/releases/latest/download/awst_<VERSIO
 **From Go toolchain:**
 
 ```sh
-go install github.com/kedwards/awst@latest
+go install github.com/kedwards/awst/v3@latest
 ```
 
 **From source:**

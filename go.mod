@@ -1,4 +1,4 @@
-module github.com/kedwards/awst
+module github.com/kedwards/awst/v3
 
 go 1.26.3
 

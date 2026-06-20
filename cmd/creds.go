@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/kedwards/awst/internal/creds"
-	"github.com/kedwards/awst/internal/paths"
+	"github.com/kedwards/awst/v3/internal/creds"
+	"github.com/kedwards/awst/v3/internal/paths"
 )
 
 type credsDeps struct {

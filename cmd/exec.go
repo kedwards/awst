@@ -12,8 +12,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/spf13/cobra"
 
-	"github.com/kedwards/awst/internal/connect"
-	"github.com/kedwards/awst/internal/ssmexec"
+	"github.com/kedwards/awst/v3/internal/connect"
+	"github.com/kedwards/awst/v3/internal/ssmexec"
 )
 
 type execDeps struct {

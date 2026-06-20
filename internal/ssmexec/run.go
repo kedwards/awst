@@ -14,7 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 
-	"github.com/kedwards/awst/internal/connect"
+	"github.com/kedwards/awst/v3/internal/connect"
 )
 
 const (
