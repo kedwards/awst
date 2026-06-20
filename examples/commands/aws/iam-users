@@ -1,5 +1,0 @@
-# aws-tools command
-# IAM users with creation date and last password use
-aws iam list-users \
-  --query 'Users[*].[UserName,CreateDate,PasswordLastUsed]' \
-  --output table

@@ -1,2 +1,0 @@
-# Check Docker containers status
-docker ps -a

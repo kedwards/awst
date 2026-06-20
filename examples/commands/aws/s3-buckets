@@ -1,5 +1,0 @@
-# aws-tools command
-# S3 buckets with region and creation date
-aws s3api list-buckets \
-  --query 'Buckets[*].[Name,CreationDate]' \
-  --output table

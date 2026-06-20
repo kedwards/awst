@@ -2,71 +2,52 @@ name: ci
 
 on:
   pull_request:
+    branches: [main]
   push:
     branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
         with:
-          submodules: recursive
+          go-version-file: go.mod
+          cache: true
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build dev image (cached)
-        uses: docker/build-push-action@v6
+      - name: Install go-task
+        uses: arduino/setup-task@v2
         with:
-          context: .
-          file: containers/Dockerfile
-          target: dev
-          load: true
-          tags: aws-tools:dev
-          cache-from: type=gha,scope=dev
-          cache-to: type=gha,scope=dev,mode=max
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Lint
+      - run: task ci
+
+      - name: Cross-compile release targets
         run: |
-          docker run --rm \
-            --user "$(id -u):$(id -g)" \
-            -e HOME=/tmp \
-            -v "$PWD":/work -w /work \
-            aws-tools:dev task lint
+          for target in windows/amd64 windows/arm64 darwin/amd64 darwin/arm64; do
+            echo "building $target"
+            GOOS=${target%/*} GOARCH=${target#*/} go build ./...
+          done
 
-      - name: Unit tests
-        run: |
-          docker run --rm \
-            --user "$(id -u):$(id -g)" \
-            -e HOME=/tmp \
-            -v "$PWD":/work -w /work \
-            aws-tools:dev task test
-
-  validate-runtime-image:
-    runs-on: ubuntu-latest
+  # Runs the unit tests natively on Windows so the windows-tagged code
+  # (kill_windows, scan_windows + CommandLineToArgvW, path resolution) is
+  # actually exercised, not just cross-compiled. The bash acceptance scripts
+  # stay on the ubuntu job — they're unix-only.
+  test-windows:
+    runs-on: windows-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build runtime image (no push)
-        uses: docker/build-push-action@v6
+      - uses: actions/setup-go@v5
         with:
-          context: .
-          file: containers/Dockerfile
-          target: runtime
-          platforms: linux/amd64
-          push: false
-          load: true
-          tags: aws-tools:runtime-ci
-          cache-from: type=gha,scope=runtime
-          cache-to: type=gha,scope=runtime,mode=max
+          go-version-file: go.mod
+          cache: true
 
-      - name: Smoke test runtime image
-        run: |
-          docker run --rm aws-tools:runtime-ci --version
-          docker run --rm aws-tools:runtime-ci --help | grep -q "Usage: awst"
+      - run: go build ./...
+      - run: go test ./...

@@ -1,5 +1,0 @@
-# aws-tools command
-# VPC CIDRs, names and account IDs
-aws ec2 describe-vpcs \
-  --query 'Vpcs[*].[Tags[?Key==`Name`].Value|[0],CidrBlock,VpcId,OwnerId]' \
-  --output table

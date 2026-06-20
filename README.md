@@ -1,604 +1,385 @@
-# AWS Tools
+# aws-tools
 
-A Bash-based CLI toolkit for AWS operations — SSM sessions, multi-instance command execution, profile-based scripting, and more.
+`awst` — a CLI for AWS shell + session work: SSO login, credential
+injection, SSM shell/port-forward sessions, and running commands across
+profiles. Cross-platform (Linux, macOS, Windows).
 
-## Features
+> **This was a Bash toolkit through v2.5.2; it is now a single Go binary.**
+> The Bash version is deprecated and unmaintained — its final state is
+> tagged [`bash-final`](https://github.com/kedwards/aws-tools/tree/bash-final)
+> (and the `v2.x` release tags). All current development is on `main`.
 
-- 🔐 **AWS Authentication** - Integration with [Granted](https://granted.dev) for AWS SSO login
-- 🖥️ **Interactive Menus** - fzf-powered selection with fallback to bash `select`
-- 🚀 **Shell Sessions** - Quick SSM session connections to EC2 instances
-- ⚡ **Command Execution** - Run commands on multiple instances simultaneously
-- 🔄 **Profile Iteration** - Run commands/scripts across multiple AWS profiles
-- 🔑 **Credential Management** - Store and re-apply AWS credentials
-- 📋 **Session Management** - List and terminate active SSM sessions
-- 🔌 **Port Forwarding** - Config-based port forwarding to instances
-- 💾 **Saved Commands** - Reusable command library with snippet placeholders
-- ✅ **250+ Tests** - Comprehensive test coverage with BATS
+**Commands:** `creds` · `login` · `connect` (shell + port-forward) ·
+`exec` · `run` · `list`/`kill` · `config`.
+`awst update` is intentionally not ported: a single static binary
+released via GoReleaser doesn't need the bash tarball+rsync updater —
+use your package manager, `go install`, or the GitHub release assets.
 
-## Installation
+## Why a Go port
 
-### Container Install (Default, Recommended)
+The bash version depended on shell sourcing for AWS credentials
+(`source assume <profile>`, `eval "$(awst creds …)"`). That contract
+doesn't cross container boundaries cleanly: `assume` must run on the
+host, and the container only sees whatever env vars the host wrapper
+forwards. A single Go binary using the AWS SDK Go v2 default credential
+chain reads the SSO cache and shared config files directly — no
+sourcing, no `assume` shell-out.
 
-Pulls the runtime image from GHCR and drops a thin wrapper into `~/.local/bin/awst`. No `aws-cli` / `session-manager-plugin` install required on the host.
+## Install
 
-```bash
-curl -sSL https://raw.githubusercontent.com/kedwards/aws-tools/main/install.sh | bash
+**Pre-built binary** (linux / darwin / windows × amd64 / arm64):
+
+```sh
+# Pick the asset matching your OS/arch from the latest release
+curl -sSL https://github.com/kedwards/aws-tools/releases/latest/download/awst_<VERSION>_linux_amd64.tar.gz \
+  | tar -xz -C /usr/local/bin awst
 ```
 
-Pin a specific version:
+**From Go toolchain:**
 
-```bash
-curl -sSL https://raw.githubusercontent.com/kedwards/aws-tools/main/install.sh | bash -s v2.4.0
+```sh
+go install github.com/kedwards/aws-tools@latest
 ```
 
-**Container install requires:** `docker` *or* `podman` on the host.
+**From source:**
 
-### Host Install (Fallback)
-
-Original behavior — installs the bash toolkit directly with no containers involved. Use this if you can't or don't want to run a container, or on macOS/Windows where `--network host` is a no-op.
-
-```bash
-curl -sSL https://raw.githubusercontent.com/kedwards/aws-tools/main/install.sh | bash -s -- --host
-curl -sSL https://raw.githubusercontent.com/kedwards/aws-tools/main/install.sh | bash -s -- --host v2.4.0
-```
-
-**Host install requires:** `bash 4+`, `aws-cli`, `session-manager-plugin`, `assume` (Granted), `rsync`.
-
-### From Source (Development)
-
-```bash
-git clone https://github.com/kedwards/aws-tools
+```sh
+git clone https://github.com/kedwards/aws-tools.git
 cd aws-tools
-./install.sh             # container mode
-./install.sh --host      # host mode
+task build              # → dist/awst
 ```
 
-Either mode installs to `~/.local/share/aws-tools` with a symlink in `~/.local/bin/awst`.
+Requires Go 1.26+ to build from source.
 
-### Authentication Note (Container Mode)
+## Usage
 
-`assume` (Granted) is **not** installed inside the runtime image. Run it on your *host* shell first; the wrapper forwards cached SSO credentials into the container:
+### Platform support
 
-```bash
-source assume <profile> -r <region>   # then run awst commands
-# or
-assume <profile> -r <region> --exec -- awst connect
-```
+| Command | Linux | macOS | Windows | Notes |
+|---|:---:|:---:|:---:|---|
+| `creds` | ✅ | ✅ | ✅ | `--shell powershell` for PowerShell output (`\| iex`) |
+| `login` | ✅ | ✅ | ✅ | browser-open works on all three (`--no-browser` to skip) |
+| `connect` (shell + `--forward`) | ✅ | ✅ | ✅ | needs `session-manager-plugin` on `PATH` |
+| `exec` | ✅ | ✅ | ✅ | pure AWS API, no local shell |
+| `config` | ✅ | ✅ | ✅ | |
+| `run` | ✅ | ✅ | ⚠️ | snippets are POSIX shell — Windows needs `sh`/`bash` (Git Bash / WSL) on `PATH` |
+| `list` / `kill` | ✅ | ✅ | ✅ | Linux via `/proc`, macOS via `ps`, Windows via CIM |
 
-### Check Version
-
-```bash
-awst --version
-```
-
-## Prerequisites
-
-**For container install** (default):
-- `docker` or `podman` on the host
-- [`assume` (Granted)](https://granted.dev) on the host — used to populate SSO tokens that the container reads
-
-**For host install** (`--host`):
-- `bash` (4.0+)
-- `aws` CLI
-- [`assume` (Granted)](https://granted.dev) — for AWS SSO authentication
-- `session-manager-plugin` — for SSM connections
-- `rsync` — used by `install.sh` and `update.sh`
-
-**Optional (both):**
-- `fzf` — enhanced interactive menus (falls back to bash `select`)
-
-## Quick Start
-
-### 1. Connect to an Instance
-
-All commands authenticate automatically — no pre-login required. If no credentials are found, the tool will prompt for profile/region and log in via Granted.
-
-```bash
-# Interactive profile/region selection + instance selection
-awst connect
-
-# Direct connection with specific profile
-awst connect -p prod -r us-east-1
-
-# Config-based port forwarding
-awst connect --config
-```
-
-### 2. Execute Commands
-
-```bash
-# Interactive: select command and instances
-awst exec
-
-# Explicit command on multiple instances
-awst exec -c "uptime" -i "web-server;db-server"
-
-# Use saved command with specific profile
-awst exec -c disk-usage -i prod-app -p prod -r us-east-1
-```
-
-### 4. Run Across Profiles
-
-```bash
-# List available commands
-awst run
-
-# Run a saved snippet across profiles
-awst run vpc-cidrs "dev prod"
-
-# Run inline query
-awst run -q "aws s3 ls" "staging:us-west-2"
-
-# Run executable script
-awst run instances
-```
-
-### 5. Credential Management
-
-```bash
-# Store credentials for an environment
-eval "$(awst creds store myenv)"
-
-# Re-apply stored credentials
-eval "$(awst creds use)"
-```
-
-### 6. Manage Sessions
-
-```bash
-# List active sessions
-awst list
-
-# Terminate sessions
-awst kill
-```
-
-## Commands
-
-### `awst connect`
-Start an SSM shell session or port forwarding to an EC2 instance.
-
-**Options:**
-- `-p, --profile` - AWS profile
-- `-r, --region` - AWS region
-- `-c, --config` - Use config-based port forwarding
-- `-f, --file` - Config file path (default: `~/.ssmf.cfg`)
-- `-n, --dry-run` - Show commands without executing
-
-**Examples:**
-```bash
-# Interactive instance selection
-awst connect -p prod
-
-# Config-based port forwarding
-awst connect --config -f ~/.ports.cfg
-```
-
-### `awst exec`
-Execute a command on one or more EC2 instances via SSM.
-
-**Options:**
-- `-c <command>` - Command to execute
-- `-p, --profile` - AWS profile
-- `-r, --region` - AWS region
-- `-i <instances>` - Semicolon-separated instance names/IDs
-- `-n, --dry-run` - Show commands without executing
-- `-y, --yes` - Non-interactive mode
-
-**Examples:**
-```bash
-# Interactive command and instance selection
-awst exec
-
-# Explicit command on multiple instances
-awst exec -c "df -h" -i "web1;web2;web3"
-
-# Use saved command
-awst exec -c system-uptime -p prod
-```
-
-### `awst run`
-Run a command or script against one or more AWS profiles.
-
-**Options:**
-- `-q <command>` - Run an inline AWS command
-- `-d <path>` - Use only this commands directory (overrides defaults)
-
-**Command Directories (checked in priority order):**
-1. `~/.local/share/aws-tools/run-commands/` — default scripts shipped with the tool
-2. `~/.config/aws-tools/run-commands/` — your custom scripts (never overwritten by updates)
-
-User scripts with the same name as a default script override the default. Use `-d` or `AWST_CMD_DIR` for an exclusive single-directory override.
-
-**Filters:**
-Space-separated profile names or `profile:region` pairs. When no filter is given, saved commands iterate all profiles. Default region is `us-east-1`.
-
-**Snippet Placeholders:**
-- `#ENV` - Replaced with the current profile name
-- `#REGION` - Replaced with the current region
-
-**Examples:**
-```bash
-# List available commands
-awst run
-
-# Run snippet across profiles
-awst run vpc-cidrs "dev prod"
-
-# Run with profile:region pairs
-awst run cfn-stacks "prod:us-east-1 staging:us-west-2"
-
-# Inline query
-awst run -q "aws s3 ls" "prod staging"
-
-# Run executable script directly
-awst run instances
-
-# Run executable per profile
-awst run instances "dev:us-west-2"
-
-# Custom commands directory (exclusive override)
-awst run -d /path/to/commands my-script
-```
+✅ supported · ⚠️ works with a prerequisite · ❌ not yet implemented
 
 ### `awst creds`
-Manage AWS credentials for the current shell.
 
-**Subcommands:**
-- `store <env>` - Export AWS credentials for `<env>` into the current shell
-- `use` - Re-apply stored credentials (AK/SK/ST) as AWS_ env vars
+Manage AWS credentials per profile. The store / use commands print
+statements that set the credential env vars, for injecting into
+third-party tools that don't read the AWS profile / SSO cache. (awst's
+own commands and the `aws` CLI don't need this — they use the SDK
+chain directly.)
 
-**Examples:**
-```bash
-# Store credentials
-eval "$(awst creds store myenv)"
+```sh
+# Resolve credentials for a profile via the SDK chain and persist them
+eval "$(awst creds store dev)"
 
-# Re-apply stored credentials
-eval "$(awst creds use)"
+# Re-export previously stored credentials into a new shell
+eval "$(awst creds use dev)"
+
+# List stored profiles + their age
+awst creds list
+
+# Remove stored credentials
+awst creds clear dev      # one profile
+awst creds clear          # all profiles
 ```
 
-### `awst list`
-List active SSM sessions on the current host.
+Pick the output syntax with `--shell` (default `posix`). PowerShell
+output is consumed with `| iex`:
 
-**Example:**
-```bash
-awst list
+```powershell
+awst creds store dev --shell powershell | iex
+awst creds use dev   --shell powershell | iex
 ```
 
-### `awst kill`
-Terminate active SSM sessions.
+`cmd.exe` has no clean `eval`/`iex` equivalent and isn't supported —
+use PowerShell on Windows.
 
-**Examples:**
-```bash
-# Interactive selection
-awst kill
+Stored credentials live in `$AWST_CREDS_DIR` (default
+`~/.local/share/aws-tools/creds`), one `<profile>.env` per profile,
+mode `0600`.
 
-# Kill all sessions (with confirmation)
-awst kill --all
+#### Authentication
+
+`awst creds store` uses the [AWS SDK Go v2 default credential
+chain](https://aws.github.io/aws-sdk-go-v2/docs/configuring-sdk/#specifying-credentials).
+Whatever the SDK resolves for the named profile — SSO cache, instance
+role, env vars, static creds — gets persisted. To prime an SSO session
+first:
+
+```sh
+awst login dev                       # built-in; equivalent to `aws sso login --profile dev`
+eval "$(awst creds store dev)"
 ```
 
-### `awst update`
-Update aws-tools to a specific version or the latest release.
+There is no dependency on
+[Granted](https://granted.dev) (`assume`). If you already use it on the
+host, that's fine — the SDK reads the same SSO cache files Granted
+writes to.
 
-**Examples:**
-```bash
-# Update to latest release
-awst update
+### `awst login`
 
-# Update to specific version
-awst update v1.3.1
+Runs the IAM Identity Center device-authorization flow for the profile's
+`sso_session` and caches the resulting token at the SDK-standard path
+(`~/.aws/sso/cache/<sha1(session)>.json`). Once the token is cached, any
+profile referencing the same `sso_session` can resolve credentials via
+the default credential chain — including `awst creds store`.
 
-# Update to development branch
-awst update main
+```sh
+awst login dev                # opens browser by default
+awst login dev --no-browser   # print the URL only (headless / containers)
 ```
 
-## Configuration
-
-### Saved Commands (`awst exec`)
-
-Default commands are installed to `~/.local/share/aws-tools/commands.config` from `examples/commands.config`.
-
-You can override or add commands in these locations (checked in order):
-1. `~/.local/share/aws-tools/commands.config` (default commands, updated on install/update)
-2. `~/.config/aws-tools/commands.user.config` (your custom commands, never overwritten)
-3. Custom path via `$AWST_SSM_CMD_FILE` environment variable
-
-**Format:**
-```
-# Command format: NAME|Description|Command to execute
-disk-usage|Check disk usage|df -h
-memory-info|Display memory information|free -h
-docker-status|Check Docker containers|docker ps -a
-```
-
-**Adding Custom Commands:**
-```bash
-# Create user commands file (will never be overwritten by updates)
-mkdir -p ~/.config/aws-tools
-cat > ~/.config/aws-tools/commands.user.config <<'EOF'
-# My custom commands
-my-check|Custom health check|curl http://localhost:8080/health
-restart-app|Restart application|systemctl restart myapp
-EOF
-```
-
-### Run Commands (`awst run`)
-
-Default run-commands are installed to `~/.local/share/aws-tools/run-commands/` from `examples/run-commands/`.
-
-Bundled scripts:
-
-| Command | Description | Type |
-|---|---|---|
-| `cfn-stacks` | CloudFormation stacks with status | snippet |
-| `ecs-services` | ECS clusters and service status | script |
-| `engine-ami-sync` | Sync engine AMI parameter store values | script |
-| `engine-amis` | Engine AMI report with parameter store comparison | script |
-| `iam-users` | IAM users with creation date and last password use | snippet |
-| `instances` | Running instances with AMI name and creation date | script |
-| `lambda-functions` | Lambda functions with runtime and memory | snippet |
-| `rds-instances` | RDS instances with engine versions | snippet |
-| `s3-buckets` | S3 buckets with region and creation date | snippet |
-| `security-groups` | Security groups with VPC and description | snippet |
-| `vpc-cidrs` | VPC CIDRs, names and account IDs | snippet |
-
-**Adding Custom Run Commands:**
-```bash
-# Create user run-commands directory (never overwritten by updates)
-mkdir -p ~/.config/aws-tools/run-commands
-
-# Add a snippet (non-executable)
-cat > ~/.config/aws-tools/run-commands/my-report <<'EOF'
-# aws-tools command
-# My custom AWS report
-aws ec2 describe-instances --output table
-EOF
-
-# Add an executable script
-cat > ~/.config/aws-tools/run-commands/my-script <<'EOF'
-#!/usr/bin/env bash
-# My custom script
-echo "Running as profile: $AWS_PROFILE"
-EOF
-chmod +x ~/.config/aws-tools/run-commands/my-script
-```
-
-User scripts with the same name as a bundled script override the bundled version (shown with `+` in `awst run` listing).
-
-### Port Forwarding Config
-
-Create `~/.ssmf.cfg` with INI-style sections:
+Only the `sso_session` config form is supported:
 
 ```ini
-[postgres-prod]
-profile = production
-region = us-east-1
-name = postgres-primary
-host = localhost
+[profile dev]
+sso_session = my-sso
+sso_account_id = 123456789012
+sso_role_name  = Developer
+region         = us-east-1
+
+[sso-session my-sso]
+sso_start_url = https://my-org.awsapps.com/start
+sso_region    = us-east-1
+```
+
+Legacy SSO profiles (`sso_start_url` on the profile itself, no
+`sso_session`) are rejected — migrate them to the `sso_session` form.
+
+### `awst connect`
+
+Open an SSM shell session on an SSM-managed EC2 instance.
+
+```sh
+awst connect i-0123abc          # by instance ID
+awst connect web-prod           # case-insensitive substring on Name tag
+awst connect                    # list available instances
+awst connect -p dev -r us-east-2 web
+```
+
+Resolution:
+- If the arg starts with `i-`, it's treated as an exact instance ID.
+- Otherwise it's matched as a case-insensitive substring on the EC2
+  `Name` tag.
+- If the arg matches nothing, matches multiple instances, or no arg is
+  given, the matching/full list is printed and the command exits
+  non-zero. Pipe to `fzf` / `grep` to disambiguate, or pass an `i-…` id.
+
+Requires
+[session-manager-plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)
+on `PATH` (override with `AWST_SSM_PLUGIN`). The plugin handles the
+WebSocket session itself; awst just calls `ssm:StartSession` and execs
+the plugin with the response JSON — the same wiring the AWS CLI uses
+internally.
+
+#### Port forwarding
+
+Tunnel one or more local ports to the instance, or to a host reachable
+from it (`--host`, e.g. an RDS endpoint). The spec is a comma-separated
+list of `PORT` or `LOCAL:REMOTE` mappings; multiple ports run as
+concurrent sessions that a single Ctrl+C tears down together.
+
+```sh
+awst connect web-prod --forward 5432:5432
+awst connect web --forward 8428,9093 --host mon.internal
+```
+
+Both cases use `AWS-StartPortForwardingSessionToRemoteHost` (the same
+document the AWS CLI uses). With no `--host` the target defaults to
+`localhost` — a service terminating on the instance itself (e.g.
+AlertManager). With `--host` it terminates at a remote endpoint reachable
+from the instance (e.g. an RDS database).
+
+#### Saved connections
+
+If the argument matches a `[section]` in the connections file (default
+`~/.config/aws-tools/connections.config`, override with `-f` or
+`AWST_CONN_FILE`), a port-forward starts from that section's settings.
+The INI format matches the bash `connections.config`, so existing files
+work unchanged:
+
+```ini
+[Engine]
+name = CheckoutEngine     # instance Name-tag filter
+host = rds.internal       # remote endpoint (omit for a port on the box)
 port = 5432
-local_port = 5432
+local_port = 15432
+profile = prod            # optional; pins profile/region
 
-[redis-staging]
-profile = staging
-region = us-west-2
-name = redis-cache
-host = localhost
-port = 6379
-local_port = 6379
+[Monitoring-All]
+name = Monitoring
+ports = 8428,9093         # multi-port; local_ports defaults to ports
 ```
 
-Then use:
-```bash
-awst connect --config
+Out of scope for this slice (still in the bash `awst connect` on
+`main`):
+- `--codebuild` debug-session attachment
+- Interactive TUI picker (use `fzf`-style external piping for now)
+- `url =` browser auto-open after forwarding
+
+### `awst list` and `awst kill`
+
+Inspect and terminate `session-manager-plugin` processes running on this
+host, pulling region / profile / target from their argv — no AWS calls
+needed.
+
+```sh
+awst list                       # show active sessions
+awst kill 12345                 # terminate one session by PID
+awst kill 12345 67890           # terminate several
+awst kill --all                 # terminate every active SSM session
 ```
 
-## Environment Variables
+Process discovery is per-OS: Linux reads `/proc`; macOS shells out to
+`ps -axww -o pid=,command=`; Windows queries `Win32_Process` via CIM
+(`Get-CimInstance`) and splits each command line with `CommandLineToArgvW`.
 
-### Logging
-- `AWS_LOG_LEVEL` - DEBUG|INFO|WARN|ERROR (default: INFO)
-- `AWS_LOG_COLOR` - 1=enabled, 0=disabled (default: 1)
-- `AWS_LOG_TIMESTAMP` - 1=show, 0=hide (default: 1)
-- `AWS_LOG_FILE` - Log file path (default: none)
+Termination is per-OS too: unix does `SIGTERM`, waits 250ms, then
+escalates to `SIGKILL`; Windows uses the OS process kill.
 
-### Behavior
-- `MENU_NON_INTERACTIVE` - Disable interactive prompts
-- `MENU_NO_FZF` - Force bash `select` instead of fzf
-- `AWST_SSM_CMD_FILE` - Custom commands file path
-- `AWST_CMD_DIR` - Exclusive single-directory override for `awst run` (bypasses default + user dir merging)
-- `AWST_AUTH_DISABLE_ASSUME` - Set to `1` to skip assume calls (for testing)
+### `awst exec`
 
-## Updating
+Run a shell command on one or more SSM-managed instances via
+`ssm:SendCommand`, polling `GetCommandInvocation` until every target
+reaches a terminal status. Per-instance output is printed in input
+order; exit is non-zero if any target failed.
 
-Update to the latest release:
-
-```bash
-awst update
+```sh
+awst exec -c 'uptime' -i web-1
+awst exec -c 'df -h' -i web,db,i-0123abc
+awst exec -c 'systemctl restart nginx' -i web -p prod -r us-east-2
 ```
 
-Update to a specific version:
+`-i` is a comma-separated mix of Name-tag substring patterns and
+`i-…` IDs. Each piece is expanded against the live SSM inventory; a
+no-match for any piece is a hard error (no silent partial runs).
 
-```bash
-awst update v1.3.1
+Output: stdout/stderr come from `GetCommandInvocation`, which caps at
+24 KB stdout / 8 KB stderr per instance. Larger output would need S3
+configuration, not wired up yet.
+
+The command runs under `AWS-RunShellScript` (default `/bin/sh`).
+Include your own shebang or wrap with `bash -c '...'` if you need bash
+features. PowerShell targets aren't supported yet.
+
+### `awst run`
+
+Run a saved snippet, an executable script, or an inline command across
+one or more AWS profiles. For each profile, awst resolves credentials
+via the SDK chain, exports `AWS_PROFILE` / `AWS_REGION` /
+`AWS_ACCESS_KEY_ID` / etc. into the child env, and execs the command.
+Per-profile auth failures warn and skip — the rest still run.
+
+```sh
+awst run                                     # list available commands
+awst run vpc-cidrs                           # snippet across every profile in ~/.aws/config
+awst run vpc-cidrs "dev prod:us-west-2"      # filtered to two profiles
+awst run -q "aws s3 ls" "dev"                # inline command
+awst run -d ./snippets my-snippet "dev"      # exclusive override of commands dir
 ```
 
-Update to development version (main branch):
+Commands live as files under (in increasing priority):
+- `$AWST_RUN_CMD_BASE` (default `~/.config/aws-tools/commands/aws`)
+- `$AWST_RUN_CMD_USER` (overrides base on collision)
+- `-d <path>` / `$AWST_CMD_DIR` (exclusive — replaces both)
 
-```bash
-awst update main
+Snippet files (non-executable) have comment + blank lines stripped and
+are run via `sh -c`. Placeholders `#ENV` (current profile) and
+`#REGION` (current region) are substituted for back-compat with the
+bash snippet library; new snippets can use `$AWS_PROFILE` / `$AWS_REGION`
+directly since those are exported.
+
+Executable files (`+x`) are exec'd directly:
+- **with a filter** → iterated per profile, with AWS env vars set
+- **without a filter** → run once, no profile loop (the script handles
+  its own iteration)
+
+**Windows:** snippets and inline (`-q`) commands are POSIX shell, so they
+run via `sh -c`. awst looks for `sh`/`bash` on `PATH` (Git Bash, WSL, or
+MSYS); if none is found it errors with that hint. cmd.exe/PowerShell can't
+run the snippet library (`\`-continuations, `$(...)`, `jq`), so they aren't
+used.
+
+### `awst config`
+
+Print the paths and AWS settings awst resolves at runtime — where creds
+and SSO tokens live, where `awst run` looks for commands, and the
+profile/region the SDK chain will pick up. Paths shown `(missing)` just
+haven't been written yet.
+
+```sh
+awst config
 ```
 
-## PATH Configuration
-
-Ensure `~/.local/bin` is in your PATH:
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
+Unlike the bash version this does **not** enumerate logging/menu/cache
+env vars or probe for `aws`/`assume`/`rsync`/`fzf` — the Go binary
+carries none of those. It reports only the surface the port actually
+uses.
 
 ## Development
 
-### Setup
+TDD discipline: each package has tests in the same directory, written
+before the implementation. Run the lot with:
 
-When cloning the repository, initialize the test dependencies (BATS helper libraries):
-
-```bash
-git clone https://github.com/kedwards/aws-tools
-cd aws-tools
-git submodule update --init --recursive
+```sh
+task test               # go test ./...
+task acceptance         # builds dist/awst + runs test/acceptance/creds.sh
+task ci                 # both of the above
 ```
 
-### Running Tests
+Layout:
 
-**Prerequisites:**
-- BATS (Bash Automated Testing System)
-- Test helpers (installed via git submodules)
-
-```bash
-# All unit tests
-task test
-
-# Or use bats directly
-bats test/unit/
-
-# Run specific test file
-bats test/unit/awst_exec.bats
-
-# Run specific test
-bats test/unit/awst_exec.bats -f "polls for command completion"
+```
+cmd/                cobra commands (root, creds, login, connect, list,
+                    kill, exec, run)
+internal/paths/     XDG / AWST_CREDS_DIR + SSO cache dir resolution
+internal/creds/     store (file I/O), exporter (eval output), resolver (SDK)
+internal/sso/       config (sso_session lookup), cache (token write),
+                    login (device-flow orchestration)
+internal/connect/   describe (EC2/SSM cross-join + Name resolution),
+                    session (StartSession + plugin exec)
+internal/sessions/  per-OS scan for active session-manager-plugin
+                    processes (powers `awst list` / `awst kill`)
+internal/ssmexec/   SendCommand + poll loop + pattern expansion
+                    (powers `awst exec`)
+internal/runner/    dir layering, snippet load, placeholder substitution,
+                    filter parsing (powers `awst run`)
+test/acceptance/    no-AWS smoke that pins the eval-able output contract
 ```
 
-### Linting
+### Adding a command
 
-```bash
-task lint
+1. Write the failing test first (`cmd/<name>_test.go` and / or an
+   `internal/<topic>` package + its test).
+2. Add the smallest implementation that makes it pass.
+3. Wire into `cmd/root.go` via a `newXxxCmd(deps)` constructor — keep
+   commands rebuildable per-test (no global state).
+4. Extend `test/acceptance/<name>.sh` if the command has a stable
+   text-format contract bash users depend on.
 
-# Or check specific file
-shellcheck lib/core/logging.sh
-```
+Dependencies are kept thin on purpose: `cobra`, `aws-sdk-go-v2`,
+`testify`. No mock framework, no logging library, no fs abstraction.
+Extract a shared package only when a second slice forces it.
 
-### CI
+## Roadmap
 
-```bash
-# Run all checks (lint + unit tests)
-task ci
-```
-
-### Container-Based Development
-
-If Docker (or Podman) is available but you don't want to install `bats`, `task`,
-or `shellcheck` on the host, run the suite inside the dev image:
-
-```bash
-task docker:build   # build aws-tools:dev (debian:stable-slim + tooling)
-task docker:test    # bats test/unit
-task docker:lint    # shellcheck
-task docker:ci      # both
-task docker:shell   # interactive shell with the repo at /work
-```
-
-The repo is bind-mounted at `/work` and commands run under your host UID/GID,
-so no root-owned files end up in the tree. The dev image is defined in
-`containers/Dockerfile.dev`.
-
-### Running `awst` in a Container (Preview)
-
-A runtime image and host wrapper let you run the full toolkit without installing
-`aws-cli` or `session-manager-plugin` on the host. Currently opt-in — the
-default `install.sh` flow is unchanged.
-
-```bash
-task docker:build:runtime   # build aws-tools:runtime (~520 MB)
-
-# Run any awst command via the wrapper:
-containers/awst-host --version
-containers/awst-host list
-containers/awst-host connect -p prod -r us-east-1
-```
-
-The wrapper:
-- auto-detects `docker` vs `podman` (override with `AWST_CONTAINER_ENGINE=podman`)
-- bind-mounts `~/.aws`, `~/.granted`, `~/.config/aws-tools`, `~/.cache/aws-tools`
-- runs as your host UID/GID, forwards `AWS_PROFILE`/`AWS_REGION`/SSO tokens
-- uses host networking + host PID namespace so port forwarding and
-  `awst list`/`kill` keep working against sessions started outside the container
-
-**Auth model:** run `assume` (Granted) on the *host* first; the container reads
-the cached SSO credentials from the mounted `~/.aws/sso/cache/`. Granted itself
-is not installed inside the runtime image.
-
-**Convenient alias:**
-```bash
-alias awst="$PWD/containers/awst-host"   # or use the absolute install path
-```
-
-See `CONTAINERS_PLAN.md` for the rollout phases.
-
-### Releases
-
-For maintainers creating releases:
-
-```bash
-# Show current version
-task version
-
-# Create a new release interactively
-task release
-
-# Or create specific release types
-task release:patch   # 0.1.0 -> 0.1.1 (bug fixes)
-task release:minor   # 0.1.0 -> 0.2.0 (new features)
-task release:major   # 0.1.0 -> 1.0.0 (breaking changes)
-```
-
-See [RELEASE.md](RELEASE.md) for detailed release management documentation.
-
-## Troubleshooting
-
-### "No AWS credentials found"
-
-All commands auto-login when a profile is provided. If you see this error, pass a profile:
-```bash
-awst connect -p your-profile -r us-east-1
-```
-
-Or authenticate with Granted directly:
-```bash
-assume your-profile -r us-east-1
-```
-
-### "session-manager-plugin not found"
-
-Install the Session Manager plugin:
-https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html
-
-### fzf not working
-
-Install fzf for better menus, or the tool will fall back to bash `select`:
-```bash
-# macOS
-brew install fzf
-
-# Ubuntu/Debian
-apt install fzf
-
-# Arch
-pacman -S fzf
-```
+- [x] `awst creds {store,use,list,clear}`
+- [x] `awst login` — embedded SSO device flow (replaces `aws sso login`)
+- [x] `awst connect` — EC2 + SSM shell session + port-forwarding (ad-hoc + saved connections; codebuild still TODO)
+- [x] `awst list` / `kill` — local SSM session inspection (Linux /proc, macOS ps, Windows CIM)
+- [x] `awst exec` — SendCommand across one/many instances
+- [x] `awst run` — execute snippets across AWS profiles
+- [x] `awst config` — print resolved configuration
+- [x] CI workflow — GitHub Actions runs `task ci` + native windows tests on PRs to `main`
+- [x] Distribution: GoReleaser (linux/darwin × amd64/arm64; signing TODO)
 
 ## License
 
-MIT License - See LICENSE file for details
-
-## Contributing
-
-Contributions welcome! Please:
-1. Run tests: `task test`
-2. Run linter: `task lint`
-3. Follow existing code style
-4. Add tests for new features
-
-## Credits
-
-Built with:
-- [Granted](https://granted.dev) - AWS SSO authentication
-- [BATS](https://github.com/bats-core/bats-core) - Bash testing framework
-- [fzf](https://github.com/junegunn/fzf) - Command-line fuzzy finder
+Same as the bash branch (see `main`).
