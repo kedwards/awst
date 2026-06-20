@@ -1,4 +1,4 @@
-module github.com/kedwards/aws-tools
+module github.com/kedwards/awst
 
 go 1.26.3
 

@@ -14,8 +14,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/spf13/cobra"
 
-	"github.com/kedwards/aws-tools/internal/paths"
-	"github.com/kedwards/aws-tools/internal/runner"
+	"github.com/kedwards/awst/internal/paths"
+	"github.com/kedwards/awst/internal/runner"
 )
 
 type runDeps struct {

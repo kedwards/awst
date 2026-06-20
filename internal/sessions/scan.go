@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kedwards/aws-tools/internal/connect"
+	"github.com/kedwards/awst/internal/connect"
 )
 
 // Session is one running session-manager-plugin invocation.

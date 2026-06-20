@@ -17,7 +17,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kedwards/aws-tools/internal/connect"
+	"github.com/kedwards/awst/internal/connect"
 )
 
 type stubSSM struct {

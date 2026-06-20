@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kedwards/aws-tools/internal/paths"
+	"github.com/kedwards/awst/internal/paths"
 )
 
 func runConfig(t *testing.T, args ...string) (stdout, stderr string, err error) {

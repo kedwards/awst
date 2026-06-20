@@ -133,8 +133,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - macOS support expected but not extensively tested
 - Requires bash 4.0 or later
 
-[Unreleased]: https://github.com/kedwards/aws-tools/compare/v2.5.0...HEAD
-[2.5.0]: https://github.com/kedwards/aws-tools/compare/v2.4.1...v2.5.0
-[1.6.0]: https://github.com/kedwards/aws-tools/compare/v1.5.0...v1.6.0
-[1.5.0]: https://github.com/kedwards/aws-tools/compare/v1.0.0...v1.5.0
-[1.0.0]: https://github.com/kedwards/aws-tools/releases/tag/v1.0.0
+[Unreleased]: https://github.com/kedwards/awst/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/kedwards/awst/compare/v2.4.1...v2.5.0
+[1.6.0]: https://github.com/kedwards/awst/compare/v1.5.0...v1.6.0
+[1.5.0]: https://github.com/kedwards/awst/compare/v1.0.0...v1.5.0
+[1.0.0]: https://github.com/kedwards/awst/releases/tag/v1.0.0

@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/kedwards/aws-tools/internal/paths"
+	"github.com/kedwards/awst/internal/paths"
 )
 
 // ErrNoSSOSession is returned when a profile is missing an `sso_session`

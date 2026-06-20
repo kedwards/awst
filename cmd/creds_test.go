@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kedwards/aws-tools/internal/creds"
+	"github.com/kedwards/awst/internal/creds"
 )
 
 func runCmd(t *testing.T, d credsDeps, args ...string) (stdout, stderr string, err error) {

@@ -21,7 +21,7 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/kedwards/aws-tools/cmd.version={{.Version}}
+      - -X github.com/kedwards/awst/cmd.version={{.Version}}
 
 archives:
   - id: default

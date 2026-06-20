@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kedwards/aws-tools/internal/sso"
+	"github.com/kedwards/awst/internal/sso"
 )
 
 type stubOIDC struct {

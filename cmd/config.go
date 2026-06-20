@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/kedwards/aws-tools/internal/paths"
+	"github.com/kedwards/awst/internal/paths"
 )
 
 // newConfigCmd backs `awst config`: it prints the paths and AWS settings

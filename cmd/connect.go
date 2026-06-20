@@ -16,9 +16,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/spf13/cobra"
 
-	"github.com/kedwards/aws-tools/internal/connect"
-	"github.com/kedwards/aws-tools/internal/paths"
-	"github.com/kedwards/aws-tools/internal/ssmexec"
+	"github.com/kedwards/awst/internal/connect"
+	"github.com/kedwards/awst/internal/paths"
+	"github.com/kedwards/awst/internal/ssmexec"
 )
 
 type ssmClients struct {

@@ -6,7 +6,7 @@ profiles. Cross-platform (Linux, macOS, Windows).
 
 > **This was a Bash toolkit through v2.5.2; it is now a single Go binary.**
 > The Bash version is deprecated and unmaintained — its final state is
-> tagged [`bash-final`](https://github.com/kedwards/aws-tools/tree/bash-final)
+> tagged [`bash-final`](https://github.com/kedwards/awst/tree/bash-final)
 > (and the `v2.x` release tags). All current development is on `main`.
 
 **Commands:** `creds` · `login` · `connect` (shell + port-forward) ·
@@ -31,21 +31,21 @@ sourcing, no `assume` shell-out.
 
 ```sh
 # Pick the asset matching your OS/arch from the latest release
-curl -sSL https://github.com/kedwards/aws-tools/releases/latest/download/awst_<VERSION>_linux_amd64.tar.gz \
+curl -sSL https://github.com/kedwards/awst/releases/latest/download/awst_<VERSION>_linux_amd64.tar.gz \
   | tar -xz -C /usr/local/bin awst
 ```
 
 **From Go toolchain:**
 
 ```sh
-go install github.com/kedwards/aws-tools@latest
+go install github.com/kedwards/awst@latest
 ```
 
 **From source:**
 
 ```sh
-git clone https://github.com/kedwards/aws-tools.git
-cd aws-tools
+git clone https://github.com/kedwards/awst.git
+cd awst
 task build              # → dist/awst
 ```
 

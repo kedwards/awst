@@ -11,8 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ssooidc"
 	"github.com/spf13/cobra"
 
-	"github.com/kedwards/aws-tools/internal/paths"
-	"github.com/kedwards/aws-tools/internal/sso"
+	"github.com/kedwards/awst/internal/paths"
+	"github.com/kedwards/awst/internal/sso"
 )
 
 type loginDeps struct {

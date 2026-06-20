@@ -11,7 +11,7 @@ import (
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kedwards/aws-tools/internal/connect"
+	"github.com/kedwards/awst/internal/connect"
 )
 
 type stubCmd struct {

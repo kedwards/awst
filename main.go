@@ -1,6 +1,6 @@
 package main
 
-import "github.com/kedwards/aws-tools/cmd"
+import "github.com/kedwards/awst/cmd"
 
 func main() {
 	cmd.Execute()
