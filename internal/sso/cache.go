@@ -44,6 +44,27 @@ type tokenJSON struct {
 	ClientSecret string `json:"clientSecret,omitempty"`
 }
 
+// Load reads and parses the cached token for sessionName. It returns an error
+// if the token file is missing or cannot be parsed.
+func (c *Cache) Load(sessionName string) (Token, error) {
+	body, err := os.ReadFile(c.Path(sessionName))
+	if err != nil {
+		return Token{}, err
+	}
+	var raw tokenJSON
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return Token{}, fmt.Errorf("parse sso token: %w", err)
+	}
+	exp, _ := time.Parse(time.RFC3339, raw.ExpiresAt) // zero time if absent/bad → treated as expired
+	return Token{
+		AccessToken:  raw.AccessToken,
+		ExpiresAt:    exp,
+		RefreshToken: raw.RefreshToken,
+		ClientID:     raw.ClientID,
+		ClientSecret: raw.ClientSecret,
+	}, nil
+}
+
 func (c *Cache) Save(sessionName string, t Token) error {
 	if err := os.MkdirAll(c.Dir, 0o700); err != nil {
 		return fmt.Errorf("create sso cache dir: %w", err)

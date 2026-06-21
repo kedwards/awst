@@ -97,6 +97,15 @@ Examples:
 				return err
 			}
 
+			// Skip the SSO device flow if a still-valid token is already cached.
+			if tok, err := d.cache.Load(sess.Name); err == nil && tok.AccessToken != "" && tok.ExpiresAt.After(d.now()) {
+				fmt.Fprintf(cmd.ErrOrStderr(),
+					"Already logged in via sso_session %q (token valid until %s).\n",
+					sess.Name, tok.ExpiresAt.Local().Format(time.RFC3339),
+				)
+				return nil
+			}
+
 			oidc, err := d.oidcFactory(ctx, sess.Region)
 			if err != nil {
 				return err

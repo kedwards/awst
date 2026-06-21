@@ -172,6 +172,43 @@ func TestLogin_HappyPath_CachesTokenAndPrintsPrompt(t *testing.T) {
 	require.NoError(t, err, "expected token cache at %s", tokPath)
 }
 
+func TestLogin_ValidCachedTokenSkipsSSO(t *testing.T) {
+	cfg := writeAWSConfig(t, ssoSessionConfig)
+	var browserOpened bool
+	d := loginTestDeps(t, cfg, &browserOpened)
+
+	// Pre-seed a token that is still valid relative to the stubbed clock.
+	require.NoError(t, d.cache.Save("my-sso", sso.Token{
+		AccessToken: "cached",
+		ExpiresAt:   d.now().Add(time.Hour),
+	}))
+
+	_, stderr, err := runLogin(t, d, "login", "dev")
+
+	require.NoError(t, err)
+	require.Contains(t, stderr, "Already logged in")
+	require.NotContains(t, stderr, "example.aws/device", "device flow must not run")
+	require.False(t, browserOpened, "browser must not open when token is valid")
+}
+
+func TestLogin_ExpiredCachedTokenRelogs(t *testing.T) {
+	cfg := writeAWSConfig(t, ssoSessionConfig)
+	var browserOpened bool
+	d := loginTestDeps(t, cfg, &browserOpened)
+
+	// Pre-seed an already-expired token; login should run the device flow.
+	require.NoError(t, d.cache.Save("my-sso", sso.Token{
+		AccessToken: "stale",
+		ExpiresAt:   d.now().Add(-time.Hour),
+	}))
+
+	_, stderr, err := runLogin(t, d, "login", "dev")
+
+	require.NoError(t, err)
+	require.Contains(t, stderr, "example.aws/device", "expired token should trigger device flow")
+	require.True(t, browserOpened)
+}
+
 func TestLogin_NoBrowserFlagSuppressesOpen(t *testing.T) {
 	cfg := writeAWSConfig(t, ssoSessionConfig)
 	var browserOpened bool
