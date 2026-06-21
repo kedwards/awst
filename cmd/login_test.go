@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kedwards/awst/v3/internal/sso"
+	"github.com/kedwards/awst/v3/internal/tui"
 )
 
 type stubOIDC struct {
@@ -80,7 +82,42 @@ func loginTestDeps(t *testing.T, configFile string, openBrowserCalled *bool) log
 		},
 		sleep: func(time.Duration) {},
 		now:   func() time.Time { return time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC) },
+		listProfiles: func() ([]string, error) {
+			return readProfileNamesFromFile(t, configFile), nil
+		},
+		selectProfile: func([]tui.ProfileItem) (string, error) {
+			t.Fatal("selectProfile should not be called")
+			return "", nil
+		},
+		isTerminal: func() bool { return true },
 	}
+}
+
+// readProfileNamesFromFile returns the [profile X]/[default] names in an AWS
+// config file — a tiny test helper mirroring defaultListProfiles, but pointed
+// at an arbitrary path.
+func readProfileNamesFromFile(t *testing.T, path string) []string {
+	t.Helper()
+	if path == "" {
+		return nil
+	}
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var out []string
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "[") || !strings.HasSuffix(line, "]") {
+			continue
+		}
+		body := strings.TrimSpace(line[1 : len(line)-1])
+		switch {
+		case body == "default":
+			out = append(out, "default")
+		case strings.HasPrefix(body, "profile "):
+			out = append(out, strings.TrimSpace(strings.TrimPrefix(body, "profile ")))
+		}
+	}
+	return out
 }
 
 const ssoSessionConfig = `
@@ -160,12 +197,78 @@ func TestLogin_HelpFlag(t *testing.T) {
 	d := loginTestDeps(t, "", nil)
 	out, _, err := runLogin(t, d, "login", "-h")
 	require.NoError(t, err)
-	require.Contains(t, out, "login <profile>")
+	require.Contains(t, out, "login [profile]")
 	require.Contains(t, out, "--no-browser")
 }
 
-func TestLogin_MissingProfileArg(t *testing.T) {
-	d := loginTestDeps(t, "", nil)
+// multiProfileConfig has two SSO-capable profiles (dev, prod, both via my-sso)
+// plus a non-SSO profile (plain) that the picker must filter out.
+const multiProfileConfig = ssoSessionConfig + `
+[profile prod]
+sso_session = my-sso
+sso_account_id = 999999999999
+sso_role_name = Admin
+region = us-east-1
+
+[profile plain]
+region = us-west-2
+`
+
+func TestLogin_NoArg_PickerListsOnlySSOProfiles(t *testing.T) {
+	cfg := writeAWSConfig(t, multiProfileConfig)
+	d := loginTestDeps(t, cfg, nil)
+
+	var offered []string
+	d.selectProfile = func(items []tui.ProfileItem) (string, error) {
+		for _, it := range items {
+			offered = append(offered, it.Profile)
+			require.Equal(t, "my-sso", it.Session)
+		}
+		return "dev", nil
+	}
+
+	_, stderr, err := runLogin(t, d, "login")
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"dev", "prod"}, offered, "non-SSO 'plain' must be filtered out")
+	require.Contains(t, stderr, `sso_session "my-sso"`)
+}
+
+func TestLogin_NoArg_SingleProfileAutoSelected(t *testing.T) {
+	cfg := writeAWSConfig(t, ssoSessionConfig) // only "dev" is SSO-capable
+	d := loginTestDeps(t, cfg, nil)
+	// selectProfile stays as the t.Fatal stub — it must not be called.
+
+	_, stderr, err := runLogin(t, d, "login")
+	require.NoError(t, err)
+	require.Contains(t, stderr, "Using the only SSO profile: dev")
+}
+
+func TestLogin_NoArg_NoSSOProfiles(t *testing.T) {
+	cfg := writeAWSConfig(t, legacyConfig) // legacy profile has no sso_session
+	d := loginTestDeps(t, cfg, nil)
+
 	_, _, err := runLogin(t, d, "login")
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "no SSO-capable profiles")
+}
+
+func TestLogin_NoArg_Aborted(t *testing.T) {
+	cfg := writeAWSConfig(t, multiProfileConfig)
+	d := loginTestDeps(t, cfg, nil)
+	d.selectProfile = func([]tui.ProfileItem) (string, error) {
+		return "", tui.ErrAborted
+	}
+
+	_, _, err := runLogin(t, d, "login")
+	require.NoError(t, err, "aborting the picker is a clean no-op")
+}
+
+func TestLogin_NoArg_NotATerminal(t *testing.T) {
+	cfg := writeAWSConfig(t, multiProfileConfig)
+	d := loginTestDeps(t, cfg, nil)
+	d.isTerminal = func() bool { return false }
+
+	_, _, err := runLogin(t, d, "login")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not a terminal")
 }

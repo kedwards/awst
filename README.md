@@ -131,7 +131,12 @@ Runs the IAM Identity Center device-authorization flow for the profile's
 profile referencing the same `sso_session` can resolve credentials via
 the default credential chain — including `awst creds store`.
 
+Run with no profile to pick one from an interactive list of the SSO-capable
+profiles in `~/.aws/config` (arrow keys, `/` to filter). Pass the profile to
+skip the picker.
+
 ```sh
+awst login                    # interactive picker
 awst login dev                # opens browser by default
 awst login dev --no-browser   # print the URL only (headless / containers)
 ```
