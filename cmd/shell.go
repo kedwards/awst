@@ -12,7 +12,7 @@ import (
 // credential env vars land in the current shell — the assume <profile> UX.
 const posixShellInit = `awst() {
   case "${1:-}" in
-    creds|connect|exec|run|list|kill|config|sso|shell|completion|help|--help|-h|--version|-v|"")
+    creds|connect|console|exec|run|list|kill|logout|config|sso|shell|completion|help|--help|-h|--version|-v|"")
       command awst "$@" ;;
     login)
       shift; eval "$(command awst login --export "$@")" ;;
@@ -25,7 +25,7 @@ const posixShellInit = `awst() {
 // powershellShellInit is the PowerShell equivalent: passthrough for known
 // subcommands, otherwise login --export piped through Invoke-Expression.
 const powershellShellInit = `function awst {
-  $passthrough = 'creds','connect','exec','run','list','kill','config','sso','shell','completion','help','--help','-h','--version','-v'
+  $passthrough = 'creds','connect','console','exec','run','list','kill','logout','config','sso','shell','completion','help','--help','-h','--version','-v'
   if ($args.Count -eq 0 -or $passthrough -contains $args[0]) {
     & (Get-Command awst -CommandType Application) @args
     return

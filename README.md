@@ -60,6 +60,8 @@ Requires Go 1.26+ to build from source.
 | `shell init` | ✅ | ✅ | ✅ | POSIX (bash/zsh) by default; `--powershell` for PowerShell |
 | `creds` | ✅ | ✅ | ✅ | `--shell powershell` for PowerShell output (`\| iex`) |
 | `login` | ✅ | ✅ | ✅ | browser-open works on all three (`--no-browser` to skip) |
+| `console` | ✅ | ✅ | ✅ | federated console sign-in; standard `aws` partition; temp (SSO) creds |
+| `logout` | ✅ | ✅ | ✅ | clears cached SSO token(s) so the next login re-runs the device flow |
 | `connect` (shell + `--forward`) | ✅ | ✅ | ✅ | needs `session-manager-plugin` on `PATH` |
 | `exec` | ✅ | ✅ | ✅ | pure AWS API, no local shell |
 | `config` | ✅ | ✅ | ✅ | |
@@ -199,6 +201,56 @@ sso_region    = us-east-1
 
 Legacy SSO profiles (`sso_start_url` on the profile itself, no
 `sso_session`) are rejected — migrate them to the `sso_session` form.
+
+### `awst console`
+
+Open the AWS web console for a profile in your browser — the same flow as
+`assume -c`. It resolves the profile's temporary credentials, exchanges them
+for a sign-in token via the AWS federation endpoint, and opens the console.
+
+```sh
+awst console                  # current env / default chain (e.g. after `awst <profile>`)
+awst console dev              # a specific profile
+awst console dev -s ec2       # land on a service's console home (any service name)
+awst console dev --container  # open in a per-profile Firefox container
+awst console dev --no-browser # print the federated URL only
+```
+
+**Multiple accounts at once (`--container`).** AWS allows only one console
+session per browser cookie jar — opening a second account otherwise errors with
+*"You must log out before logging into a different AWS account."* With
+`--container`, `awst console` opens the console in a per-profile Firefox
+container (each profile gets a stable, distinct color), so any number of
+accounts stay logged in simultaneously:
+
+```sh
+awst console rch-platform-dev-coffee -s s3 --container
+awst console rch-platform-dev-wtf    -s s3 --container   # opens alongside, no logout
+```
+
+Requires **Firefox** and the
+[Granted Containers](https://github.com/common-fate/granted-containers)
+extension (awst emits the `ext+granted-containers:` URL the extension handles).
+Default it without the flag via `AWST_CONSOLE_CONTAINER=1` or
+`AWST_BROWSER=firefox`; point at a non-standard Firefox binary with
+`AWST_FIREFOX=/path/to/firefox`.
+
+If the profile's SSO session token is missing or expired, `console` runs the
+login device flow automatically before opening the console (no separate
+`awst login` needed). Requires temporary (SSO/STS) credentials — long-term IAM
+user keys can't be federated. Standard `aws` partition only (not GovCloud /
+China). The region for the console comes from `--region`/`-r`, else the profile
+region, else `us-east-1`.
+
+### `awst logout`
+
+Clear cached SSO session tokens so the next login (or `awst console`) re-runs
+the device flow. Mirrors `aws sso logout`.
+
+```sh
+awst logout          # clear all cached SSO tokens
+awst logout dev      # clear only dev's sso_session token
+```
 
 ### `awst sso configure`
 

@@ -65,6 +65,38 @@ func (c *Cache) Load(sessionName string) (Token, error) {
 	}, nil
 }
 
+// Delete removes the cached token for sessionName. A missing token is not an
+// error (logout is idempotent).
+func (c *Cache) Delete(sessionName string) error {
+	if err := os.Remove(c.Path(sessionName)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove sso token: %w", err)
+	}
+	return nil
+}
+
+// DeleteAll removes every cached SSO token (the *.json files in Dir) and
+// returns how many were removed. A missing cache dir is not an error.
+func (c *Cache) DeleteAll() (int, error) {
+	entries, err := os.ReadDir(c.Dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("read sso cache dir: %w", err)
+	}
+	n := 0
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		if err := os.Remove(filepath.Join(c.Dir, e.Name())); err != nil && !os.IsNotExist(err) {
+			return n, fmt.Errorf("remove %s: %w", e.Name(), err)
+		}
+		n++
+	}
+	return n, nil
+}
+
 func (c *Cache) Save(sessionName string, t Token) error {
 	if err := os.MkdirAll(c.Dir, 0o700); err != nil {
 		return fmt.Errorf("create sso cache dir: %w", err)

@@ -31,8 +31,11 @@ func Resolve(ctx context.Context, profile string, p Provider) (Credentials, erro
 // NewSDKProvider builds a Provider backed by the AWS SDK default credential
 // chain for the named profile and returns the effective region.
 func NewSDKProvider(ctx context.Context, profile, region string) (Provider, string, error) {
-	opts := []func(*config.LoadOptions) error{
-		config.WithSharedConfigProfile(profile),
+	var opts []func(*config.LoadOptions) error
+	// An empty profile falls through to the SDK default chain (env / current
+	// AWS_PROFILE) — used by `awst console` with no profile arg.
+	if profile != "" {
+		opts = append(opts, config.WithSharedConfigProfile(profile))
 	}
 	if region != "" {
 		opts = append(opts, config.WithRegion(region))

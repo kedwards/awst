@@ -17,6 +17,30 @@ func newTestCache(t *testing.T) *Cache {
 	return NewCache(filepath.Join(t.TempDir(), "cache"))
 }
 
+func TestCache_Delete_RemovesTokenAndIsIdempotent(t *testing.T) {
+	c := newTestCache(t)
+	require.NoError(t, c.Save("sess", Token{AccessToken: "a", ExpiresAt: time.Now().Add(time.Hour)}))
+	require.NoError(t, c.Delete("sess"))
+	_, err := os.Stat(c.Path("sess"))
+	require.True(t, os.IsNotExist(err))
+	require.NoError(t, c.Delete("sess"), "deleting a missing token is not an error")
+}
+
+func TestCache_DeleteAll(t *testing.T) {
+	c := newTestCache(t)
+	require.NoError(t, c.Save("a", Token{AccessToken: "x", ExpiresAt: time.Now().Add(time.Hour)}))
+	require.NoError(t, c.Save("b", Token{AccessToken: "y", ExpiresAt: time.Now().Add(time.Hour)}))
+
+	n, err := c.DeleteAll()
+	require.NoError(t, err)
+	require.Equal(t, 2, n)
+
+	// Missing cache dir is clean (zero, no error).
+	n, err = NewCache(filepath.Join(t.TempDir(), "absent")).DeleteAll()
+	require.NoError(t, err)
+	require.Equal(t, 0, n)
+}
+
 func TestCache_Save_WritesFileWithMode0600(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("unix file modes aren't represented on windows")
