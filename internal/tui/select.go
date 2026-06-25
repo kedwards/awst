@@ -131,6 +131,53 @@ func SelectProfile(items []ProfileItem) (string, error) {
 	return fm.choice, nil
 }
 
+// RegionItem is one selectable AWS region row.
+type RegionItem struct{ Name string }
+
+func (i RegionItem) FilterValue() string { return i.Name }
+func (i RegionItem) choiceValue() string { return i.Name }
+
+// regionDelegate renders a region on a single line with a ">" cursor.
+type regionDelegate struct{}
+
+func (regionDelegate) Height() int                             { return 1 }
+func (regionDelegate) Spacing() int                            { return 0 }
+func (regionDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
+func (regionDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	it, ok := item.(RegionItem)
+	if !ok {
+		return
+	}
+	if index == m.Index() {
+		fmt.Fprint(w, "> "+selectedStyle.Render(it.Name))
+		return
+	}
+	fmt.Fprint(w, "  "+it.Name)
+}
+
+// SelectRegion shows an arrow-key list of regions and returns the chosen
+// region. It returns ErrAborted if the user quits without selecting.
+func SelectRegion(regions []string) (string, error) {
+	rows := make([]list.Item, len(regions))
+	for i, r := range regions {
+		rows[i] = RegionItem{Name: r}
+	}
+	l := list.New(rows, regionDelegate{}, 0, 0)
+	l.Title = "Select a region"
+	l.SetShowStatusBar(false)
+	l.Styles.Title = titleStyle
+
+	res, err := tea.NewProgram(model{list: l}).Run()
+	if err != nil {
+		return "", err
+	}
+	fm := res.(model)
+	if fm.aborted || fm.choice == "" {
+		return "", ErrAborted
+	}
+	return fm.choice, nil
+}
+
 // InstanceItem is one selectable SSM-managed instance row.
 type InstanceItem struct {
 	ID    string

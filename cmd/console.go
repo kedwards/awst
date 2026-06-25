@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"github.com/kedwards/awst/v3/internal/creds"
 	"github.com/kedwards/awst/v3/internal/paths"
 	"github.com/kedwards/awst/v3/internal/sso"
+	"github.com/kedwards/awst/v3/internal/tui"
 )
 
 type consoleDeps struct {
@@ -104,6 +106,16 @@ Examples:
 
 			profile, err := profileArg(profileFlag, args)
 			if err != nil {
+				return err
+			}
+
+			// Resolve profile/region, prompting with a picker when missing and
+			// interactive (skips the region prompt when already resolvable).
+			profile, region, err = resolveProfileRegion(ctx, profile, region, isStdinTerminal)
+			if err != nil {
+				if errors.Is(err, tui.ErrAborted) {
+					return nil
+				}
 				return err
 			}
 

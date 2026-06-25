@@ -61,6 +61,13 @@ func ConnectionsFile() string {
 	return filepath.Join(ConfigDir(), "aws-tools", "connections.config")
 }
 
+func RegionsFile() string {
+	if v := os.Getenv("AWST_REGIONS_FILE"); v != "" {
+		return v
+	}
+	return filepath.Join(ConfigDir(), "aws-tools", "regions.config")
+}
+
 func CredsDir() string {
 	if v := os.Getenv("AWST_CREDS_DIR"); v != "" {
 		return v

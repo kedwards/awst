@@ -87,6 +87,36 @@ func TestConfig_HonorsOverridesAndAWSEnv(t *testing.T) {
 	require.Contains(t, out, "eu-west-1") // falls back to AWS_DEFAULT_REGION
 }
 
+func TestConfigRegions_AddListRemove(t *testing.T) {
+	regionsFile := filepath.Join(t.TempDir(), "regions.config")
+	t.Setenv("AWST_REGIONS_FILE", regionsFile)
+
+	// Empty list → falls back to defaults.
+	out, _, err := runConfig(t, "config", "regions")
+	require.NoError(t, err)
+	require.Contains(t, out, "defaults")
+	require.Contains(t, out, "us-east-1")
+
+	out, _, err = runConfig(t, "config", "regions", "add", "us-west-2")
+	require.NoError(t, err)
+	require.Contains(t, out, "Added us-west-2")
+
+	// Adding switches the source to the configured list.
+	out, _, err = runConfig(t, "config", "regions")
+	require.NoError(t, err)
+	require.Contains(t, out, "configured")
+	require.Contains(t, out, "us-west-2")
+	require.NotContains(t, out, "ap-south-1") // a default that isn't configured
+
+	out, _, err = runConfig(t, "config", "regions", "remove", "us-west-2")
+	require.NoError(t, err)
+	require.Contains(t, out, "Removed us-west-2")
+
+	if _, err := os.Stat(regionsFile); err != nil {
+		t.Fatalf("regions file should exist after edits: %v", err)
+	}
+}
+
 func setConfigTestHome(t *testing.T, home string) {
 	t.Helper()
 	t.Setenv("HOME", home)

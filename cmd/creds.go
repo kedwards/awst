@@ -10,6 +10,7 @@ import (
 
 	"github.com/kedwards/awst/v3/internal/creds"
 	"github.com/kedwards/awst/v3/internal/paths"
+	"github.com/kedwards/awst/v3/internal/tui"
 )
 
 type credsDeps struct {
@@ -75,6 +76,16 @@ intended for eval:
 			ctx := cmd.Context()
 			if ctx == nil {
 				ctx = context.Background()
+			}
+
+			// Prompt for a region (picker) only when one isn't already resolvable
+			// and stdin is interactive.
+			region, err = ensureRegion(ctx, profile, region, isStdinTerminal, regionsEffective, tui.SelectRegion)
+			if err != nil {
+				if errors.Is(err, tui.ErrAborted) {
+					return nil
+				}
+				return err
 			}
 
 			p, resolvedRegion, err := d.providerFactory(ctx, profile, region)

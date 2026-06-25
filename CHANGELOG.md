@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Interactive pickers when a profile and/or region is missing: `connect`, `console`, `exec`, and `creds store` now prompt (profile first, then region) instead of guessing or erroring. The region prompt is skipped when the region is already resolvable (flag, env, or the profile's `region=`). Non-interactive runs (pipes/CI) are unchanged.
+- `awst config regions` (`add`/`remove`/list) to configure the region list the picker offers; until configured it falls back to a built-in default list. Stored at `~/.config/aws-tools/regions.config` (override with `AWST_REGIONS_FILE`).
+
 ## [3.6.0] - 2026-06-25
 
 ### Added

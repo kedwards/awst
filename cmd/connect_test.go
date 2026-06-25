@@ -163,7 +163,8 @@ func TestConnect_AmbiguousMatch_Terminal_PicksAndConnects(t *testing.T) {
 		return "i-bbb", nil // user picks the second match
 	}
 
-	_, _, err := runConnect(t, d, "connect", "web")
+	// profile+region given so only the instance picker is exercised here.
+	_, _, err := runConnect(t, d, "connect", "web", "--profile", "p", "--region", "us-east-1")
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"i-aaa", "i-bbb"}, offered, "picker should be offered both matches")
 	require.Equal(t, "i-bbb", aws.ToString(ssmStub.startCall.Target), "connects to the chosen instance")
@@ -177,7 +178,8 @@ func TestConnect_AmbiguousMatch_Terminal_AbortIsCleanNoOp(t *testing.T) {
 	d.isTerminal = func() bool { return true }
 	d.selectInstance = func([]tui.InstanceItem) (string, error) { return "", tui.ErrAborted }
 
-	_, _, err := runConnect(t, d, "connect", "web")
+	// profile+region given so only the instance picker is exercised here.
+	_, _, err := runConnect(t, d, "connect", "web", "--profile", "p", "--region", "us-east-1")
 	require.NoError(t, err, "aborting the picker is a clean no-op")
 	require.Nil(t, ssmStub.startCall, "no session started when the picker is aborted")
 }

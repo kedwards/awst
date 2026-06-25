@@ -263,6 +263,17 @@ Examples:
 				}
 			}
 
+			// Resolve profile/region, prompting with a picker when missing and
+			// interactive (skips the region prompt when already resolvable).
+			var perr error
+			effProfile, effRegion, perr = resolveProfileRegion(ctx, effProfile, effRegion, d.isTerminal)
+			if perr != nil {
+				if errors.Is(perr, tui.ErrAborted) {
+					return nil
+				}
+				return perr
+			}
+
 			// Auto-login: if we have a profile (flag, saved connection, or
 			// AWS_PROFILE), ensure a valid SSO token first for SSO profiles.
 			loginProfile := effProfile

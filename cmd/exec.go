@@ -14,6 +14,7 @@ import (
 
 	"github.com/kedwards/awst/v3/internal/connect"
 	"github.com/kedwards/awst/v3/internal/ssmexec"
+	"github.com/kedwards/awst/v3/internal/tui"
 )
 
 type execDeps struct {
@@ -81,6 +82,18 @@ Examples:
 			if ctx == nil {
 				ctx = context.Background()
 			}
+
+			// Resolve profile/region, prompting with a picker when missing and
+			// interactive (skips the region prompt when already resolvable).
+			var err error
+			profile, region, err = resolveProfileRegion(ctx, profile, region, isStdinTerminal)
+			if err != nil {
+				if errors.Is(err, tui.ErrAborted) {
+					return nil
+				}
+				return err
+			}
+
 			clients, err := d.clients(ctx, profile, region)
 			if err != nil {
 				return err
