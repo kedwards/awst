@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.0] - 2026-06-25
+
+### Added
+- `login`, `console`, and `logout` now accept `--profile`/`-p` as an equivalent to the positional `[profile]` (error if both are given), matching `connect`/`exec` and the AWS CLI's global `--profile`.
+
 ## [2.5.0] - 2026-06-17
 
 ### Changed
