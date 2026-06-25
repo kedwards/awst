@@ -59,6 +59,7 @@ func newLoginCmd(d loginDeps) *cobra.Command {
 	var export bool
 	var shellName string
 	var region string
+	var profileFlag string
 	c := &cobra.Command{
 		Use:   "login [profile]",
 		Short: "Log in via SSO device flow",
@@ -79,9 +80,13 @@ be eval'd to set AWS_PROFILE and the credential env vars in the current shell.
 This is what the ` + "`awst shell init`" + ` wrapper uses to make
 ` + "`awst <profile>`" + ` behave like ` + "`assume <profile>`" + `.
 
+The profile may be given positionally or with --profile/-p; the two forms are
+equivalent (giving both is an error).
+
 Examples:
   awst login
   awst login dev
+  awst login --profile dev
   awst login dev --no-browser
   eval "$(awst login dev --export)"`,
 		Args: cobra.MaximumNArgs(1),
@@ -91,10 +96,11 @@ Examples:
 				ctx = context.Background()
 			}
 
-			var profile string
-			if len(args) == 1 {
-				profile = args[0]
-			} else {
+			profile, err := profileArg(profileFlag, args)
+			if err != nil {
+				return err
+			}
+			if profile == "" {
 				p, err := d.pickProfile(ctx, cmd)
 				if err != nil {
 					if errors.Is(err, tui.ErrAborted) {
@@ -176,6 +182,7 @@ Examples:
 	c.Flags().BoolVarP(&export, "export", "e", false, "After login, print credential export statements on stdout for eval")
 	c.Flags().StringVar(&shellName, "shell", "posix", "Export syntax with --export: posix or powershell")
 	c.Flags().StringVarP(&region, "region", "r", "", "AWS region for exported credentials (default: profile region, else us-east-1)")
+	c.Flags().StringVarP(&profileFlag, "profile", "p", "", "AWS profile (alternative to the positional [profile])")
 	return c
 }
 

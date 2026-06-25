@@ -44,6 +44,32 @@ func TestLogout_Profile_ClearsThatSession(t *testing.T) {
 	require.True(t, os.IsNotExist(statErr), "token file should be gone")
 }
 
+func TestLogout_ProfileFlag_ClearsThatSession(t *testing.T) {
+	cfg := writeAWSConfig(t, ssoSessionConfig)
+	cache := sso.NewCache(t.TempDir())
+	require.NoError(t, cache.Save("my-sso", sso.Token{AccessToken: "a", ExpiresAt: time.Now().Add(time.Hour)}))
+
+	d := logoutDeps{
+		sessionLoader: func(ctx context.Context, profile, _ string) (sso.SSOSession, error) {
+			return sso.LoadSSOSession(ctx, profile, cfg)
+		},
+		cache: cache,
+	}
+
+	stderr, err := runLogout(t, d, "logout", "--profile", "dev")
+	require.NoError(t, err)
+	require.Contains(t, stderr, "my-sso")
+	_, statErr := os.Stat(cache.Path("my-sso"))
+	require.True(t, os.IsNotExist(statErr), "flag form should clear the session just like positional")
+}
+
+func TestLogout_ProfileFlagAndPositionalConflict(t *testing.T) {
+	d := logoutDeps{cache: sso.NewCache(t.TempDir())}
+	_, err := runLogout(t, d, "logout", "dev", "--profile", "dev")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not both")
+}
+
 func TestLogout_NoArg_ClearsAll(t *testing.T) {
 	cache := sso.NewCache(t.TempDir())
 	require.NoError(t, cache.Save("s1", sso.Token{AccessToken: "a", ExpiresAt: time.Now().Add(time.Hour)}))

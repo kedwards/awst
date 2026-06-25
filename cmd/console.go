@@ -62,6 +62,7 @@ func newConsoleCmd(d consoleDeps) *cobra.Command {
 	var region string
 	var noBrowser bool
 	var container bool
+	var profileFlag string
 	c := &cobra.Command{
 		Use:   "console [profile]",
 		Short: "Open the AWS web console for a profile in a browser",
@@ -84,9 +85,13 @@ AWST_BROWSER=firefox; override the Firefox binary with AWST_FIREFOX.
 
 Requires temporary (SSO/STS) credentials. Standard ` + "`aws`" + ` partition only.
 
+The profile may be given positionally or with --profile/-p; the two forms are
+equivalent (giving both is an error).
+
 Examples:
   awst console
   awst console dev
+  awst console --profile dev
   awst console dev -s ec2
   awst console dev --container
   awst console dev --no-browser`,
@@ -97,9 +102,9 @@ Examples:
 				ctx = context.Background()
 			}
 
-			var profile string
-			if len(args) == 1 {
-				profile = args[0]
+			profile, err := profileArg(profileFlag, args)
+			if err != nil {
+				return err
 			}
 
 			// Auto-login: if a profile (arg or current AWS_PROFILE) names an
@@ -177,6 +182,7 @@ Examples:
 	c.Flags().StringVarP(&region, "region", "r", "", "AWS region for the console (default: profile region, else us-east-1)")
 	c.Flags().BoolVarP(&noBrowser, "no-browser", "n", false, "Print the URL only; don't try to open a browser")
 	c.Flags().BoolVarP(&container, "container", "c", false, "Open in a per-profile Firefox container (Granted Containers extension)")
+	c.Flags().StringVarP(&profileFlag, "profile", "p", "", "AWS profile (alternative to the positional [profile])")
 	return c
 }
 

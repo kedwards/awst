@@ -1,12 +1,29 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"runtime/debug"
 
 	"github.com/spf13/cobra"
 )
+
+// profileArg resolves the profile from the --profile flag or the positional
+// [profile] argument, erroring if both are given. An empty result means "none
+// supplied" — callers fall back to the picker / env chain / all-tokens path.
+func profileArg(flag string, args []string) (string, error) {
+	if flag != "" && len(args) == 1 {
+		return "", errors.New("specify the profile positionally or with --profile, not both")
+	}
+	if flag != "" {
+		return flag, nil
+	}
+	if len(args) == 1 {
+		return args[0], nil
+	}
+	return "", nil
+}
 
 // version is overridden at build time via
 // -ldflags "-X github.com/kedwards/awst/v3/cmd.version=<v>".

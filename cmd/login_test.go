@@ -300,6 +300,26 @@ func TestLogin_LegacyProfileRejected(t *testing.T) {
 	require.Contains(t, err.Error(), "sso_session")
 }
 
+func TestLogin_ProfileFlagEquivalentToPositional(t *testing.T) {
+	cfg := writeAWSConfig(t, ssoSessionConfig)
+	d := loginTestDeps(t, cfg, nil)
+
+	_, stderr, err := runLogin(t, d, "login", "--profile", "dev")
+	require.NoError(t, err)
+	require.Contains(t, stderr, "ABCD-EFGH")
+	_, err = os.Stat(d.cache.Path("my-sso"))
+	require.NoError(t, err, "flag form should cache the token just like positional")
+}
+
+func TestLogin_ProfileFlagAndPositionalConflict(t *testing.T) {
+	cfg := writeAWSConfig(t, ssoSessionConfig)
+	d := loginTestDeps(t, cfg, nil)
+
+	_, _, err := runLogin(t, d, "login", "dev", "--profile", "dev")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not both")
+}
+
 func TestLogin_HelpFlag(t *testing.T) {
 	d := loginTestDeps(t, "", nil)
 	out, _, err := runLogin(t, d, "login", "-h")

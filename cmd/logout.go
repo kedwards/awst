@@ -23,6 +23,7 @@ func defaultLogoutDeps() logoutDeps {
 }
 
 func newLogoutCmd(d logoutDeps) *cobra.Command {
+	var profileFlag string
 	c := &cobra.Command{
 		Use:   "logout [profile]",
 		Short: "Clear cached SSO session token(s)",
@@ -32,9 +33,13 @@ flow again.
 With a [profile], only that profile's sso_session token is cleared. With no
 [profile], all cached SSO tokens are cleared (like ` + "`aws sso logout`" + `).
 
+The profile may be given positionally or with --profile/-p; the two forms are
+equivalent (giving both is an error).
+
 Examples:
-  awst logout          # clear all cached SSO tokens
-  awst logout dev      # clear only dev's sso_session token`,
+  awst logout              # clear all cached SSO tokens
+  awst logout dev          # clear only dev's sso_session token
+  awst logout --profile dev`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -42,7 +47,12 @@ Examples:
 				ctx = context.Background()
 			}
 
-			if len(args) == 0 {
+			profile, err := profileArg(profileFlag, args)
+			if err != nil {
+				return err
+			}
+
+			if profile == "" {
 				n, err := d.cache.DeleteAll()
 				if err != nil {
 					return err
@@ -51,7 +61,6 @@ Examples:
 				return nil
 			}
 
-			profile := args[0]
 			sess, err := d.sessionLoader(ctx, profile, "")
 			if err != nil {
 				return err
@@ -63,5 +72,6 @@ Examples:
 			return nil
 		},
 	}
+	c.Flags().StringVarP(&profileFlag, "profile", "p", "", "AWS profile (alternative to the positional [profile])")
 	return c
 }

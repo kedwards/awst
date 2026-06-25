@@ -67,6 +67,23 @@ func TestConsole_OpensBrowserWithLoginURL(t *testing.T) {
 	require.Empty(t, stdout, "opening a browser is quiet — nothing printed")
 }
 
+func TestConsole_ProfileFlagEquivalentToPositional(t *testing.T) {
+	var opened string
+	d := consoleTestDeps("signin-xyz", tempCreds(), &opened)
+
+	_, _, err := runConsole(t, d, "console", "--profile", "dev", "-r", "us-east-1")
+	require.NoError(t, err)
+	require.Contains(t, opened, "SigninToken=signin-xyz")
+}
+
+func TestConsole_ProfileFlagAndPositionalConflict(t *testing.T) {
+	d := consoleTestDeps("tok", tempCreds(), nil)
+
+	_, _, err := runConsole(t, d, "console", "dev", "--profile", "dev")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not both")
+}
+
 func TestConsole_ServiceFlagTargetsServiceHome(t *testing.T) {
 	var opened string
 	d := consoleTestDeps("tok", tempCreds(), &opened)
