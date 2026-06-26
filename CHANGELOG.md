@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.8.0] - 2026-06-25
+
+### Changed
+- `awst console` now auto-detects the Granted Containers Firefox extension (by scanning the Firefox profiles' `extensions.json`) and opens a per-profile container tab by default when present, falling back to a regular Firefox tab when not. `--container` still forces a container (skipping detection); the new `--no-container` forces a plain tab.
+
 ## [3.7.0] - 2026-06-25
 
 ### Added
