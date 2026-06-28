@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.9.1] - 2026-06-28
+
+### Changed
+- Tidied branding in `--help` and `awst config` output: dropped "Go port" / bash-comparison phrasing, added the repo URL to `awst config`, and minor wording fixes. No behavior change.
+
 ## [3.9.0] - 2026-06-28
 
 ### Added
