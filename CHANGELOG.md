@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.9.0] - 2026-06-28
+
+### Added
+- `awst connect --project-name NAME` connects to a running CodeBuild build that has a debug session enabled, opening an SSM shell against the build's debug session target. It auto-selects a lone debug build, prompts to pick when there are several, or lists candidates and errors (asking for `--build-id`) when non-interactive. Pass `--build-id` to connect to a specific build directly.
+
+### Changed
+- `awst connect --forward` (and saved connections) now detaches the port-forward into the background by default, freeing the shell immediately and printing the PID plus the `ps`/`kill` commands to manage it. The forward runs in its own session so it survives the shell closing, with output redirected to a per-port log under the data dir. Pass `--foreground`/`-F` (or `AWST_CONNECT_FOREGROUND=1`) to keep the previous blocking, Ctrl+C-to-stop behavior. Shell sessions are unaffected.
+
 ## [3.8.0] - 2026-06-25
 
 ### Changed
