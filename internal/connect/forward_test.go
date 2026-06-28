@@ -65,9 +65,18 @@ func (r *recordSSM) StartSession(_ context.Context, in *ssm.StartSessionInput, _
 	return r.out, nil
 }
 
-type recordRunner struct{ args []string }
+type recordRunner struct {
+	args    []string
+	logPath string
+}
 
 func (r *recordRunner) Run(args []string) error { r.args = args; return nil }
+
+func (r *recordRunner) Start(args []string, logPath string) (int, error) {
+	r.args = args
+	r.logPath = logPath
+	return 4242, nil
+}
 
 func TestStartPortForward_InstanceLocal(t *testing.T) {
 	ssmStub := &recordSSM{out: &ssm.StartSessionOutput{
@@ -104,4 +113,23 @@ func TestStartPortForward_RemoteHost(t *testing.T) {
 
 	require.Equal(t, docPortForward, aws.ToString(ssmStub.in.DocumentName))
 	require.Equal(t, []string{"rds.internal"}, ssmStub.in.Parameters["host"])
+}
+
+func TestStartPortForwardDetached(t *testing.T) {
+	ssmStub := &recordSSM{out: &ssm.StartSessionOutput{
+		SessionId: aws.String("s-1"), StreamUrl: aws.String("wss://x"), TokenValue: aws.String("tok"),
+	}}
+	runner := &recordRunner{}
+	pf := PortForward{LocalPort: "15432", RemotePort: "5432"}
+
+	pid, err := StartPortForwardDetached(context.Background(), ssmStub, runner, pf, "i-abc", "us-east-1", "dev", "https://ssm.us-east-1.amazonaws.com", "/tmp/forward-15432.log")
+	require.NoError(t, err)
+	require.Equal(t, 4242, pid)
+	require.Equal(t, "/tmp/forward-15432.log", runner.logPath)
+
+	// Same 6-arg shape the foreground path builds.
+	require.Len(t, runner.args, 6)
+	require.Equal(t, "us-east-1", runner.args[1])
+	require.Equal(t, "StartSession", runner.args[2])
+	require.Equal(t, "dev", runner.args[3])
 }

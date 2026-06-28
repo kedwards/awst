@@ -7,6 +7,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"text/tabwriter"
 	"time"
@@ -65,7 +68,7 @@ func defaultConnectDeps() connectDeps {
 		connFile = paths.ConnectionsFile()
 	}
 	return connectDeps{
-		connFile: connFile,
+		connFile:      connFile,
 		sessionLoader: sso.LoadSSOSession,
 		oidcFactory: func(ctx context.Context, region string) (sso.OIDCClient, error) {
 			cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
@@ -188,6 +191,7 @@ func (d connectDeps) ensureLogin(ctx context.Context, cmd *cobra.Command, profil
 
 func newConnectCmd(d connectDeps) *cobra.Command {
 	var profile, region, forwardSpec, host, file string
+	var foreground bool
 	c := &cobra.Command{
 		Use:   "connect [instance|connection]",
 		Short: "Open an SSM shell session or port-forward to an EC2 instance",
@@ -199,6 +203,10 @@ otherwise it's a case-insensitive substring match on the Name tag.
 Port-forward (--forward): tunnel one or more local ports to the instance,
 or to a host reachable from it via --host (e.g. an RDS endpoint). The
 spec is a comma-separated list of PORT or LOCAL:REMOTE mappings.
+
+Forwards detach into the background by default, freeing the shell and
+printing the PID plus the ps/kill commands to manage them. Use
+--foreground (or AWST_CONNECT_FOREGROUND=1) to block until Ctrl+C instead.
 
 Saved connection: if the argument matches a [section] in the connections
 file (default ~/.config/aws-tools/connections.config, override with -f or
@@ -290,6 +298,7 @@ Examples:
 			if err != nil {
 				return err
 			}
+
 			list, err := connect.List(ctx, clients.SSM, clients.EC2)
 			if err != nil {
 				return authHint(err, clients.Profile)
@@ -336,11 +345,17 @@ Examples:
 				if conn != nil {
 					pfs = conn.Forwards
 				}
-				fmt.Fprintf(cmd.ErrOrStderr(), "Port-forwarding to %s (%s) in %s...\n", inst.Name, inst.ID, clients.Region)
-				return authHint(runForwards(ctx, clients, d.runner, pfs, inst.ID, endpoint, cmd.ErrOrStderr()), clients.Profile)
+				// Detach by default; --foreground (or AWST_CONNECT_FOREGROUND)
+				// keeps the old blocking, Ctrl+C-to-stop behavior.
+				fg := envTruthy("AWST_CONNECT_FOREGROUND")
+				if cmd.Flags().Changed("foreground") {
+					fg = foreground
+				}
+				fmt.Fprintf(cmd.ErrOrStderr(), "Port-forwarding to %s (%s) in %s (%s)...\n", inst.Name, inst.ID, clients.Profile, clients.Region)
+				return authHint(runForwards(ctx, clients, d.runner, pfs, inst.ID, endpoint, cmd.ErrOrStderr(), fg), clients.Profile)
 			}
 
-			fmt.Fprintf(cmd.ErrOrStderr(), "Connecting to %s (%s) in %s...\n", inst.Name, inst.ID, clients.Region)
+			fmt.Fprintf(cmd.ErrOrStderr(), "Connecting to %s (%s) in %s (%s)...\n", inst.Name, inst.ID, clients.Profile, clients.Region)
 			return authHint(connect.StartSession(ctx, clients.SSMSession, d.runner,
 				inst.ID, clients.Region, clients.Profile, endpoint), clients.Profile)
 		},
@@ -350,6 +365,7 @@ Examples:
 	c.Flags().StringVarP(&forwardSpec, "forward", "L", "", "Port-forward spec: comma-separated PORT or LOCAL:REMOTE")
 	c.Flags().StringVarP(&host, "host", "H", "", "Remote host reachable from the instance (e.g. an RDS endpoint)")
 	c.Flags().StringVarP(&file, "file", "f", "", "Connections file (default ~/.config/aws-tools/connections.config)")
+	c.Flags().BoolVarP(&foreground, "foreground", "F", false, "Run a port-forward in the foreground (block until Ctrl+C) instead of detaching")
 	return c
 }
 
@@ -367,12 +383,20 @@ func lookupConnection(path, name string) (connect.Connection, bool, error) {
 	return c, ok, nil
 }
 
-// runForwards starts every port-forward, blocking until all end. Multiple
-// forwards run as concurrent plugin processes; they share the terminal
-// process group, so one Ctrl+C tears them all down.
-// ponytail: shared os.Stdin across the children is benign — port-forward
+// runForwards starts every port-forward. By default each runs detached in the
+// background and the shell returns immediately, with the PID and ps/kill
+// commands printed so the user can find and stop it. With foreground=true it
+// blocks until all sessions end (Ctrl+C tears them down) — the legacy behavior.
+// ponytail: shared os.Stdin across foreground children is benign — port-forward
 // sessions don't read interactive stdin the way a shell does.
-func runForwards(ctx context.Context, clients *ssmClients, runner connect.PluginRunner, pfs []connect.PortForward, instanceID, endpoint string, logw io.Writer) error {
+func runForwards(ctx context.Context, clients *ssmClients, runner connect.PluginRunner, pfs []connect.PortForward, instanceID, endpoint string, logw io.Writer, foreground bool) error {
+	if foreground {
+		return runForwardsForeground(ctx, clients, runner, pfs, instanceID, endpoint, logw)
+	}
+	return runForwardsDetached(ctx, clients, runner, pfs, instanceID, endpoint, logw)
+}
+
+func runForwardsForeground(ctx context.Context, clients *ssmClients, runner connect.PluginRunner, pfs []connect.PortForward, instanceID, endpoint string, logw io.Writer) error {
 	if len(pfs) == 1 {
 		fmt.Fprintf(logw, "Forwarding %s\n", pfs[0])
 		return connect.StartPortForward(ctx, clients.SSMSession, runner, pfs[0], instanceID, clients.Region, clients.Profile, endpoint)
@@ -389,6 +413,32 @@ func runForwards(ctx context.Context, clients *ssmClients, runner connect.Plugin
 	}
 	wg.Wait()
 	return errors.Join(errs...)
+}
+
+func runForwardsDetached(ctx context.Context, clients *ssmClients, runner connect.PluginRunner, pfs []connect.PortForward, instanceID, endpoint string, logw io.Writer) error {
+	logDir := filepath.Join(paths.DataDir(), "aws-tools")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		return fmt.Errorf("create log dir %s: %w", logDir, err)
+	}
+	pids := make([]string, 0, len(pfs))
+	for _, pf := range pfs {
+		logPath := filepath.Join(logDir, fmt.Sprintf("forward-%s.log", pf.LocalPort))
+		pid, err := connect.StartPortForwardDetached(ctx, clients.SSMSession, runner, pf, instanceID, clients.Region, clients.Profile, endpoint, logPath)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(logw, "Forwarding %s  (PID %d, log %s)\n", pf, pid, logPath)
+		pids = append(pids, strconv.Itoa(pid))
+	}
+	list := strings.Join(pids, " ")
+	fmt.Fprintf(logw, "Running in background; the shell is free. Manage with:\n  list:  ps -fp %s\n  stop:  kill %s\n", list, list)
+	return nil
+}
+
+// envTruthy reports whether an env var is set to a truthy value (1/true/yes/on).
+func envTruthy(key string) bool {
+	v, err := strconv.ParseBool(strings.TrimSpace(os.Getenv(key)))
+	return err == nil && v
 }
 
 func toInstanceItems(list []connect.Instance) []tui.InstanceItem {
