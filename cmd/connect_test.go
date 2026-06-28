@@ -57,6 +57,11 @@ func (c *captureRunner) Run(args []string) error {
 	return nil
 }
 
+func (c *captureRunner) Start(args []string, _ string) (int, error) {
+	c.gotArgs = args
+	return 4242, nil
+}
+
 func ssmInfo(id string) ssmtypes.InstanceInformation {
 	return ssmtypes.InstanceInformation{
 		InstanceId: aws.String(id),
@@ -93,6 +98,10 @@ func connectTestDeps(ssm *stubSSM, ec2c *stubEC2, runner connect.PluginRunner, p
 
 func runConnect(t *testing.T, d connectDeps, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
+	// Keep detached-forward logs out of the real home dir, and don't let an
+	// ambient env var flip the foreground default during tests.
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("AWST_CONNECT_FOREGROUND", "")
 	root := &cobra.Command{Use: "awst", SilenceUsage: true, SilenceErrors: true}
 	root.AddCommand(newConnectCmd(d))
 	var out, errBuf bytes.Buffer
@@ -255,6 +264,13 @@ func (m *multiRunner) Run(args []string) error {
 	return nil
 }
 
+func (m *multiRunner) Start(args []string, _ string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.runs = append(m.runs, append([]string(nil), args...))
+	return 4242, nil
+}
+
 func startOut() *ssm.StartSessionOutput {
 	return &ssm.StartSessionOutput{
 		SessionId: aws.String("s1"), StreamUrl: aws.String("wss://x"), TokenValue: aws.String("t"),
@@ -295,6 +311,29 @@ func TestConnect_AdHocForward_MultiPort(t *testing.T) {
 	_, _, err := runConnect(t, d, "connect", "web", "--forward", "8428,9093")
 	require.NoError(t, err)
 	require.Len(t, runner.runs, 2, "one plugin process per forwarded port")
+}
+
+func TestConnect_AdHocForward_DetachesByDefault(t *testing.T) {
+	ssmStub := &stubSSM{infos: []ssmtypes.InstanceInformation{ssmInfo("i-aaa")}, startOut: startOut()}
+	ec2Stub := &stubEC2{instances: []ec2types.Instance{ec2Inst("i-aaa", "web")}}
+	d := connectTestDeps(ssmStub, ec2Stub, &captureRunner{}, nil)
+
+	_, stderr, err := runConnect(t, d, "connect", "web", "--forward", "15432:5432")
+	require.NoError(t, err)
+	// Background summary with the mock PID and the manage commands.
+	require.Contains(t, stderr, "PID 4242")
+	require.Contains(t, stderr, "ps -fp 4242")
+	require.Contains(t, stderr, "kill 4242")
+}
+
+func TestConnect_AdHocForward_ForegroundFlag(t *testing.T) {
+	ssmStub := &stubSSM{infos: []ssmtypes.InstanceInformation{ssmInfo("i-aaa")}, startOut: startOut()}
+	ec2Stub := &stubEC2{instances: []ec2types.Instance{ec2Inst("i-aaa", "web")}}
+	d := connectTestDeps(ssmStub, ec2Stub, &captureRunner{}, nil)
+
+	_, stderr, err := runConnect(t, d, "connect", "web", "--forward", "15432:5432", "--foreground")
+	require.NoError(t, err)
+	require.NotContains(t, stderr, "background", "foreground forward must not print the detached summary")
 }
 
 func TestConnect_InvalidForwardSpec_ErrorsBeforeAWS(t *testing.T) {

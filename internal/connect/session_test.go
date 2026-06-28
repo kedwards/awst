@@ -32,6 +32,11 @@ func (c *captureRunner) Run(args []string) error {
 	return c.err
 }
 
+func (c *captureRunner) Start(args []string, _ string) (int, error) {
+	c.gotArgs = args
+	return 4242, c.err
+}
+
 func TestStartSession_PassesPluginArgs(t *testing.T) {
 	s := &stubSession{out: &ssm.StartSessionOutput{
 		SessionId:  aws.String("sess-123"),

@@ -105,3 +105,23 @@ func StartPortForward(ctx context.Context, s SSMSessionClient, runner PluginRunn
 	}
 	return dispatchToPlugin(runner, out, in, region, profile, endpoint)
 }
+
+// StartPortForwardDetached starts the session like StartPortForward but
+// launches the plugin in the background (output to logPath) and returns its
+// PID without waiting, so the caller's shell is freed.
+func StartPortForwardDetached(ctx context.Context, s SSMSessionClient, runner PluginRunner, pf PortForward, instanceID, region, profile, endpoint, logPath string) (int, error) {
+	in := &ssm.StartSessionInput{
+		Target:       aws.String(instanceID),
+		DocumentName: aws.String(docPortForward),
+		Parameters:   pf.parameters(),
+	}
+	out, err := s.StartSession(ctx, in)
+	if err != nil {
+		return 0, fmt.Errorf("start ssm port-forward session: %w", err)
+	}
+	args, err := buildPluginArgs(out, in, region, profile, endpoint)
+	if err != nil {
+		return 0, err
+	}
+	return runner.Start(args, logPath)
+}

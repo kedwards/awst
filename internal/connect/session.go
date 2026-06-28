@@ -18,8 +18,13 @@ type SSMSessionClient interface {
 
 // PluginRunner exec'd session-manager-plugin with the args the AWS CLI uses
 // internally. Kept as an interface so tests can record argv without forking.
+//
+// Run blocks until the session ends (shell / foreground forward). Start
+// launches the plugin detached, redirects its output to logPath, and returns
+// its PID without waiting (background port-forward).
 type PluginRunner interface {
 	Run(args []string) error
+	Start(args []string, logPath string) (pid int, err error)
 }
 
 // PluginName is the binary name the AWS CLI invokes. Override via
@@ -43,13 +48,22 @@ func StartSession(ctx context.Context, s SSMSessionClient, runner PluginRunner, 
 // The params JSON mirrors whatever fields were set on the request (Target
 // for a shell, plus DocumentName/Parameters for port forwarding).
 func dispatchToPlugin(runner PluginRunner, out *ssm.StartSessionOutput, in *ssm.StartSessionInput, region, profile, endpoint string) error {
+	args, err := buildPluginArgs(out, in, region, profile, endpoint)
+	if err != nil {
+		return err
+	}
+	return runner.Run(args)
+}
+
+// buildPluginArgs assembles the 6-arg session-manager-plugin invocation.
+func buildPluginArgs(out *ssm.StartSessionOutput, in *ssm.StartSessionInput, region, profile, endpoint string) ([]string, error) {
 	respJSON, err := json.Marshal(map[string]string{
 		"SessionId":  aws.ToString(out.SessionId),
 		"StreamUrl":  aws.ToString(out.StreamUrl),
 		"TokenValue": aws.ToString(out.TokenValue),
 	})
 	if err != nil {
-		return fmt.Errorf("marshal session response: %w", err)
+		return nil, fmt.Errorf("marshal session response: %w", err)
 	}
 	params := map[string]any{"Target": aws.ToString(in.Target)}
 	if in.DocumentName != nil {
@@ -58,16 +72,16 @@ func dispatchToPlugin(runner PluginRunner, out *ssm.StartSessionOutput, in *ssm.
 	}
 	paramsJSON, err := json.Marshal(params)
 	if err != nil {
-		return fmt.Errorf("marshal session params: %w", err)
+		return nil, fmt.Errorf("marshal session params: %w", err)
 	}
-	return runner.Run([]string{
+	return []string{
 		string(respJSON),
 		region,
 		"StartSession",
 		profile,
 		string(paramsJSON),
 		endpoint,
-	})
+	}, nil
 }
 
 // SSMEndpoint returns the public-partition SSM endpoint for region.
@@ -93,4 +107,31 @@ func (e ExecRunner) Run(args []string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// Start launches the plugin detached: stdout/stderr go to logPath, stdin is
+// closed (a port-forward never reads it), and the process is placed in its own
+// session so it survives the parent shell. It returns the PID without waiting.
+func (e ExecRunner) Start(args []string, logPath string) (int, error) {
+	bin := e.Binary
+	if bin == "" {
+		bin = PluginName
+	}
+	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return 0, fmt.Errorf("open forward log %s: %w", logPath, err)
+	}
+	defer log.Close() // the child dups the fd; our copy isn't needed after Start
+
+	cmd := exec.Command(bin, args...)
+	cmd.Stdin = nil
+	cmd.Stdout = log
+	cmd.Stderr = log
+	cmd.SysProcAttr = detachSysProcAttr()
+	if err := cmd.Start(); err != nil {
+		return 0, fmt.Errorf("start %s: %w", bin, err)
+	}
+	pid := cmd.Process.Pid
+	_ = cmd.Process.Release() // detach: don't hold the child as our own
+	return pid, nil
 }
