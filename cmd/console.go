@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -46,7 +47,7 @@ func defaultConsoleDeps() consoleDeps {
 		},
 		openBrowser:     openBrowser,
 		openFirefox:     launchFirefoxTab,
-		detectContainer: console.GrantedContainerInstalled,
+		detectContainer: console.ContainerExtensionInstalled,
 		sessionLoader: sso.LoadSSOSession,
 		oidcFactory: func(ctx context.Context, region string) (sso.OIDCClient, error) {
 			cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
@@ -67,6 +68,7 @@ func newConsoleCmd(d consoleDeps) *cobra.Command {
 	var noBrowser bool
 	var container bool
 	var noContainer bool
+	var installExt bool
 	var profileFlag string
 	c := &cobra.Command{
 		Use:   "console [profile]",
@@ -82,13 +84,15 @@ opens that account's console. Pass [profile] to federate a specific profile.
 Use --service/-s to land on a service's console home instead of the home page;
 any AWS service name works (ec2, cloudwatch, s3, lambda, …).
 
-If the Granted Containers Firefox extension is detected, the console opens by
+If the awst Containers Firefox extension is detected, the console opens by
 default in a per-profile Firefox container so multiple accounts can stay logged
 in at once without AWS's "you must log out" error (each profile gets a stable,
 distinct color). If it isn't detected, a regular Firefox tab is opened instead.
 Use --container to force a container (skipping detection) or --no-container to
 force a plain tab; AWST_CONSOLE_CONTAINER=1 / AWST_BROWSER=firefox also force
 container mode. Override the Firefox binary with AWST_FIREFOX.
+
+Run --install-extension to install the awst Containers extension and exit.
 
 Requires temporary (SSO/STS) credentials. Standard ` + "`aws`" + ` partition only.
 
@@ -107,6 +111,10 @@ Examples:
 			ctx := cmd.Context()
 			if ctx == nil {
 				ctx = context.Background()
+			}
+
+			if installExt {
+				return installExtension(cmd.OutOrStdout())
 			}
 
 			profile, err := profileArg(profileFlag, args)
@@ -170,7 +178,7 @@ Examples:
 
 			loginURL := console.LoginURL(tok, effective, service)
 
-			// Decide between a Granted container tab and a plain Firefox tab.
+			// Decide between a container tab and a plain Firefox tab.
 			// --no-container forces plain; --container (or the env hints) forces
 			// container and skips detection; otherwise auto-detect the extension.
 			useContainer := false
@@ -217,7 +225,8 @@ Examples:
 	c.Flags().StringVarP(&region, "region", "r", "", "AWS region for the console (default: profile region, else us-east-1)")
 	c.Flags().BoolVarP(&noBrowser, "no-browser", "n", false, "Print the URL only; don't try to open a browser")
 	c.Flags().BoolVarP(&container, "container", "c", false, "Force a per-profile Firefox container, skipping extension detection")
-	c.Flags().BoolVar(&noContainer, "no-container", false, "Force a plain Firefox tab even if the Granted Containers extension is detected")
+	c.Flags().BoolVar(&noContainer, "no-container", false, "Force a plain Firefox tab even if the awst Containers extension is detected")
+	c.Flags().BoolVar(&installExt, "install-extension", false, "Install the awst Containers Firefox extension and exit")
 	c.Flags().StringVarP(&profileFlag, "profile", "p", "", "AWS profile (alternative to the positional [profile])")
 	return c
 }
@@ -228,10 +237,10 @@ func containerFromEnv() bool {
 		strings.EqualFold(os.Getenv("AWST_BROWSER"), "firefox")
 }
 
-// launchFirefoxTab opens url in a new Firefox tab. For a Granted container URL
-// (ext+granted-containers:...) the Granted Containers extension intercepts it
-// and opens an isolated, named container tab; a plain federation URL opens as
-// an ordinary tab.
+// launchFirefoxTab opens url in a new Firefox tab. For a container URL
+// (ext+awst-containers:...) the awst Containers extension intercepts it and
+// opens an isolated, named container tab; a plain federation URL opens as an
+// ordinary tab.
 func launchFirefoxTab(url string) error {
 	bin, err := firefoxPath()
 	if err != nil {
@@ -239,6 +248,44 @@ func launchFirefoxTab(url string) error {
 	}
 	return exec.Command(bin, "--new-tab", url).Start()
 }
+
+// installExtension installs the awst Containers Firefox extension. If a signed
+// XPI path is given via AWST_EXTENSION_XPI, it opens it with Firefox to trigger
+// the (user-level, no-admin) install prompt; otherwise it prints instructions.
+func installExtension(out io.Writer) error {
+	if xpi := os.Getenv("AWST_EXTENSION_XPI"); xpi != "" {
+		if _, err := os.Stat(xpi); err == nil {
+			bin, err := firefoxPath()
+			if err != nil {
+				return err
+			}
+			if err := exec.Command(bin, xpi).Start(); err != nil {
+				return err
+			}
+			fmt.Fprintf(out, "Opening Firefox to install the awst Containers extension from %s …\nAccept the prompt to finish.\n", xpi)
+			return nil
+		}
+		fmt.Fprintf(out, "AWST_EXTENSION_XPI=%s not found; falling back to instructions.\n\n", xpi)
+	}
+	fmt.Fprint(out, installInstructions)
+	return nil
+}
+
+const installInstructions = `The awst Containers Firefox extension opens each AWS profile in its own
+isolated container so multiple accounts stay logged in at once.
+
+Install (signed release):
+  1. Download awst-containers.xpi from
+     https://github.com/kedwards/awst/releases/latest
+  2. Open it in Firefox (File ▸ Open File…, or drag it onto a window) and
+     accept the install prompt.
+     Or set AWST_EXTENSION_XPI=/path/to/awst-containers.xpi and rerun
+     'awst console --install-extension' to open it automatically.
+
+Develop / load unsigned (Firefox Developer Edition or Nightly):
+  about:debugging ▸ This Firefox ▸ Load Temporary Add-on… ▸ pick
+  extension/manifest.json from the awst source tree.
+`
 
 // firefoxPath locates the Firefox binary: AWST_FIREFOX override, then PATH,
 // then OS-specific default install locations.

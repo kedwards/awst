@@ -40,6 +40,20 @@ tasks:
       - test
       - acceptance
 
+  ext:build:
+    desc: Build (and lint) the awst Containers Firefox extension into ./dist
+    cmds:
+      - npx --yes web-ext build --source-dir=extension --artifacts-dir=dist --overwrite-dest --ignore-files='*.xpi'
+
+  ext:sign:
+    desc: Sign the extension as an unlisted XPI (needs WEB_EXT_API_KEY / WEB_EXT_API_SECRET)
+    cmds:
+      # Sign, then publish under the stable name the release + install helper expect.
+      # web-ext names the artifact <amo-slug>-<version>.xpi; normalize it.
+      - npx --yes web-ext sign --source-dir=extension --channel=unlisted --artifacts-dir=dist --ignore-files='*.xpi'
+      - cp "$(ls -t dist/*.xpi | head -1)" extension/awst-containers.xpi
+      - echo "Signed extension -> extension/awst-containers.xpi (commit it; goreleaser attaches it on release)"
+
   version:
     desc: Show current version
     cmds:

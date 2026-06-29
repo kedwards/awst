@@ -1,0 +1,28 @@
+{
+  "manifest_version": 2,
+  "name": "awst Containers",
+  "version": "1.0.0",
+  "description": "Open AWS console sessions from awst in isolated, per-profile Firefox containers.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "awst-containers@kedwards.github.io",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
+  "permissions": [
+    "contextualIdentities",
+    "cookies",
+    "tabs",
+    "storage"
+  ],
+  "protocol_handlers": [
+    {
+      "protocol": "ext+awst-containers",
+      "name": "awst Containers",
+      "uriTemplate": "open.html?u=%s"
+    }
+  ]
+}

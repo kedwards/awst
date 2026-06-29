@@ -132,7 +132,7 @@ func TestConsole_ContainerFlag_OpensFirefoxContainer(t *testing.T) {
 
 	_, _, err := runConsole(t, d, "console", "dev", "-r", "us-east-1", "--container")
 	require.NoError(t, err)
-	require.True(t, strings.HasPrefix(containerURL, "ext+granted-containers:"), "got %q", containerURL)
+	require.True(t, strings.HasPrefix(containerURL, "ext+awst-containers:"), "got %q", containerURL)
 	require.Contains(t, containerURL, "name=dev")
 	require.Contains(t, containerURL, "Action%3Dlogin", "wraps the escaped federation URL")
 	require.Empty(t, browserURL, "container mode must not use the plain browser opener")
@@ -145,7 +145,7 @@ func TestConsole_AutoDetect_OpensContainer(t *testing.T) {
 
 	_, _, err := runConsole(t, d, "console", "dev")
 	require.NoError(t, err)
-	require.True(t, strings.HasPrefix(opened, "ext+granted-containers:"),
+	require.True(t, strings.HasPrefix(opened, "ext+awst-containers:"),
 		"detected extension should open a container tab by default, got %q", opened)
 }
 
@@ -157,7 +157,7 @@ func TestConsole_NoContainerFlag_ForcesPlainTab(t *testing.T) {
 	_, _, err := runConsole(t, d, "console", "dev", "--no-container")
 	require.NoError(t, err)
 	require.Contains(t, opened, "Action=login")
-	require.False(t, strings.HasPrefix(opened, "ext+granted-containers:"),
+	require.False(t, strings.HasPrefix(opened, "ext+awst-containers:"),
 		"--no-container must force a plain tab, got %q", opened)
 }
 
@@ -169,7 +169,7 @@ func TestConsole_ContainerViaEnv(t *testing.T) {
 
 	_, _, err := runConsole(t, d, "console", "dev")
 	require.NoError(t, err)
-	require.True(t, strings.HasPrefix(containerURL, "ext+granted-containers:"))
+	require.True(t, strings.HasPrefix(containerURL, "ext+awst-containers:"))
 	require.Empty(t, browserURL)
 }
 
@@ -182,7 +182,7 @@ func TestConsole_ContainerNoBrowser_PrintsButDoesNotOpen(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, containerURL, "--no-browser must not launch Firefox")
 	require.Empty(t, browserURL)
-	require.Contains(t, stdout, "ext+granted-containers:", "--no-browser prints the container URL on stdout")
+	require.Contains(t, stdout, "ext+awst-containers:", "--no-browser prints the container URL on stdout")
 }
 
 func TestConsole_AutoLoginWhenNoCachedToken(t *testing.T) {

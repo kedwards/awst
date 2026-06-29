@@ -38,6 +38,13 @@ archives:
 checksum:
   name_template: checksums.txt
 
+release:
+  # Attach the signed Firefox container extension. It versions independently of
+  # awst and is committed pre-signed (task ext:sign), so the release just ships
+  # the current artifact — no AMO signing in CI. Asset name: awst-containers.xpi.
+  extra_files:
+    - glob: ./extension/awst-containers.xpi
+
 snapshot:
   version_template: "{{ incpatch .Version }}-snapshot"
 

@@ -13,10 +13,10 @@ func TestContainerURL_FormatAndStableColor(t *testing.T) {
 	target := "https://signin.aws.amazon.com/federation?Action=login&SigninToken=abc"
 	got := ContainerURL("dev", target)
 
-	require.True(t, strings.HasPrefix(got, "ext+granted-containers:"), "got %q", got)
+	require.True(t, strings.HasPrefix(got, "ext+awst-containers:"), "got %q", got)
 
 	// Parse the params after the protocol prefix.
-	q, err := url.ParseQuery(strings.TrimPrefix(got, "ext+granted-containers:"))
+	q, err := url.ParseQuery(strings.TrimPrefix(got, "ext+awst-containers:"))
 	require.NoError(t, err)
 	require.Equal(t, "dev", q.Get("name"))
 	require.Equal(t, target, q.Get("url"), "url param must round-trip the federation URL")
@@ -30,7 +30,7 @@ func TestContainerURL_FormatAndStableColor(t *testing.T) {
 func TestContainerURL_DifferentNamesUsePalette(t *testing.T) {
 	// Not all names differ in color (only 8 buckets), but each must be valid.
 	for _, name := range []string{"rch-platform-dev-coffee", "rch-platform-dev-wtf", "prod"} {
-		q, err := url.ParseQuery(strings.TrimPrefix(ContainerURL(name, "https://x"), "ext+granted-containers:"))
+		q, err := url.ParseQuery(strings.TrimPrefix(ContainerURL(name, "https://x"), "ext+awst-containers:"))
 		require.NoError(t, err)
 		require.True(t, slices.Contains(containerColors, q.Get("color")))
 	}

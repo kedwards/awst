@@ -228,12 +228,14 @@ awst console rch-platform-dev-coffee -s s3 --container
 awst console rch-platform-dev-wtf    -s s3 --container   # opens alongside, no logout
 ```
 
-Requires **Firefox** and the
-[Granted Containers](https://github.com/common-fate/granted-containers)
-extension (awst emits the `ext+granted-containers:` URL the extension handles).
-Default it without the flag via `AWST_CONSOLE_CONTAINER=1` or
-`AWST_BROWSER=firefox`; point at a non-standard Firefox binary with
-`AWST_FIREFOX=/path/to/firefox`.
+Requires **Firefox** and the awst Containers extension (awst emits the
+`ext+awst-containers:` URL the extension handles — see [`extension/`](extension/)).
+Install it with `awst console --install-extension`; awst auto-detects it (and,
+transitionally, the older [Granted Containers](https://github.com/common-fate/granted-containers)
+extension) and defaults to a container when present. Force it without the flag
+via `AWST_CONSOLE_CONTAINER=1` or `AWST_BROWSER=firefox`; point at a
+non-standard Firefox binary with `AWST_FIREFOX=/path/to/firefox`. Containers are
+a Firefox-only feature, so other browsers fall back to a plain console tab.
 
 If the profile's SSO session token is missing or expired, `console` runs the
 login device flow automatically before opening the console (no separate

@@ -15,14 +15,24 @@ func writeExt(t *testing.T, body string) string {
 	return p
 }
 
-func TestGrantedInExtensionsFile(t *testing.T) {
+func TestExtensionInFile(t *testing.T) {
 	cases := []struct {
 		name string
 		body string
 		want bool
 	}{
 		{
-			name: "granted containers present and active",
+			name: "awst containers present and active (matched by id)",
+			body: `{"addons":[{"active":true,"id":"awst-containers@kedwards.github.io","defaultLocale":{"name":"awst Containers"}}]}`,
+			want: true,
+		},
+		{
+			name: "awst containers inactive is ignored",
+			body: `{"addons":[{"active":false,"id":"awst-containers@kedwards.github.io","defaultLocale":{"name":"awst Containers"}}]}`,
+			want: false,
+		},
+		{
+			name: "granted containers present and active (transitional fallback)",
 			body: `{"addons":[{"active":true,"defaultLocale":{"name":"Granted Containers"}}]}`,
 			want: true,
 		},
@@ -54,15 +64,15 @@ func TestGrantedInExtensionsFile(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := grantedInExtensionsFile(writeExt(t, tc.body)); got != tc.want {
+			if got := extensionInFile(writeExt(t, tc.body)); got != tc.want {
 				t.Fatalf("got %v, want %v", got, tc.want)
 			}
 		})
 	}
 }
 
-func TestGrantedInExtensionsFile_MissingFile(t *testing.T) {
-	if grantedInExtensionsFile(filepath.Join(t.TempDir(), "nope.json")) {
+func TestExtensionInFile_MissingFile(t *testing.T) {
+	if extensionInFile(filepath.Join(t.TempDir(), "nope.json")) {
 		t.Fatal("missing file should report not-installed")
 	}
 }

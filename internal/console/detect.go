@@ -10,18 +10,22 @@ import (
 	"github.com/kedwards/awst/v3/internal/paths"
 )
 
-// GrantedContainerInstalled reports whether the Granted Containers Firefox
+// ContainerExtensionID is the stable Firefox add-on id of the awst Containers
+// extension (see extension/manifest.json).
+const ContainerExtensionID = "awst-containers@kedwards.github.io"
+
+// ContainerExtensionInstalled reports whether the awst Containers Firefox
 // extension is installed in any local Firefox profile. Detection is best-effort
 // (a missing/unreadable profile just means "not found") and is used to decide
 // whether `awst console` opens a container tab by default.
-func GrantedContainerInstalled() bool {
+func ContainerExtensionInstalled() bool {
 	for _, g := range firefoxExtensionGlobs() {
 		matches, err := filepath.Glob(g)
 		if err != nil {
 			continue
 		}
 		for _, m := range matches {
-			if grantedInExtensionsFile(m) {
+			if extensionInFile(m) {
 				return true
 			}
 		}
@@ -46,18 +50,22 @@ func firefoxExtensionGlobs() []string {
 	}
 }
 
-// grantedInExtensionsFile reports whether the Firefox extensions.json at path
-// lists an active add-on whose name contains "granted" (case-insensitive) —
-// i.e. the Granted Containers extension. Matching on "granted" tolerates name
-// variants while excluding the unrelated "AWS SSO Containers" extension.
-func grantedInExtensionsFile(path string) bool {
+// extensionInFile reports whether the Firefox extensions.json at path lists an
+// active awst Containers add-on, matched by its stable add-on id.
+//
+// ponytail: it also matches the upstream Granted Containers extension by name
+// ("granted", case-insensitive) as a transitional fallback so existing users
+// aren't broken before they install awst's own extension. Drop the Granted
+// branch once awst-containers is the documented default.
+func extensionInFile(path string) bool {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return false
 	}
 	var f struct {
 		Addons []struct {
-			Active        bool `json:"active"`
+			ID            string `json:"id"`
+			Active        bool   `json:"active"`
 			DefaultLocale struct {
 				Name string `json:"name"`
 			} `json:"defaultLocale"`
@@ -67,7 +75,13 @@ func grantedInExtensionsFile(path string) bool {
 		return false
 	}
 	for _, a := range f.Addons {
-		if a.Active && strings.Contains(strings.ToLower(a.DefaultLocale.Name), "granted") {
+		if !a.Active {
+			continue
+		}
+		if a.ID == ContainerExtensionID {
+			return true
+		}
+		if strings.Contains(strings.ToLower(a.DefaultLocale.Name), "granted") {
 			return true
 		}
 	}
