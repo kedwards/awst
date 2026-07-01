@@ -6,11 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// All pickers render to stderr (tea.WithOutput(os.Stderr)) so they draw
+// correctly inside command substitution — eg. eval "$(awst login --export)",
+// where stdout is captured for the eval'd credential exports.
 
 // ErrAborted is returned by SelectProfile when the user quits the picker
 // without choosing (esc / ctrl-c / q). Callers should treat it as a clean,
@@ -120,7 +125,7 @@ func SelectProfile(items []ProfileItem) (string, error) {
 	l.SetShowStatusBar(false)
 	l.Styles.Title = titleStyle
 
-	res, err := tea.NewProgram(model{list: l}).Run()
+	res, err := tea.NewProgram(model{list: l}, tea.WithOutput(os.Stderr)).Run()
 	if err != nil {
 		return "", err
 	}
@@ -167,7 +172,7 @@ func SelectRegion(regions []string) (string, error) {
 	l.SetShowStatusBar(false)
 	l.Styles.Title = titleStyle
 
-	res, err := tea.NewProgram(model{list: l}).Run()
+	res, err := tea.NewProgram(model{list: l}, tea.WithOutput(os.Stderr)).Run()
 	if err != nil {
 		return "", err
 	}
@@ -261,7 +266,7 @@ func SelectBuild(items []BuildItem) (string, error) {
 	l.SetShowStatusBar(false)
 	l.Styles.Title = titleStyle
 
-	res, err := tea.NewProgram(model{list: l}).Run()
+	res, err := tea.NewProgram(model{list: l}, tea.WithOutput(os.Stderr)).Run()
 	if err != nil {
 		return "", err
 	}
@@ -292,7 +297,7 @@ func SelectInstance(items []InstanceItem) (string, error) {
 	l.SetShowStatusBar(false)
 	l.Styles.Title = titleStyle
 
-	res, err := tea.NewProgram(model{list: l}).Run()
+	res, err := tea.NewProgram(model{list: l}, tea.WithOutput(os.Stderr)).Run()
 	if err != nil {
 		return "", err
 	}
