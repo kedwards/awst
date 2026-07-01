@@ -112,6 +112,20 @@ func TestLogout_Export_PowerShell(t *testing.T) {
 	require.Contains(t, stdout, "Remove-Item Env:AWS_PROFILE")
 }
 
+func TestLogout_KeepToken_ClearsEnvButKeepsCache(t *testing.T) {
+	cache := sso.NewCache(t.TempDir())
+	require.NoError(t, cache.Save("my-sso", sso.Token{AccessToken: "a", ExpiresAt: time.Now().Add(time.Hour)}))
+	d := logoutDeps{cache: cache}
+
+	stdout, stderr, err := runLogout(t, d, "logout", "--keep-token", "--export")
+	require.NoError(t, err)
+	require.Contains(t, stdout, "unset ")
+	require.Contains(t, stderr, "token kept")
+	// The cached token must survive.
+	_, statErr := os.Stat(cache.Path("my-sso"))
+	require.NoError(t, statErr, "SSO token must not be cleared with --keep-token")
+}
+
 func TestLogout_NoExport_SilentStdout(t *testing.T) {
 	d := logoutDeps{cache: sso.NewCache(t.TempDir())}
 	stdout, _, err := runLogout(t, d, "logout")
