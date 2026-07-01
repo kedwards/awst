@@ -94,6 +94,9 @@ Examples:
 			if startURL == "" || ssoRegion == "" {
 				return fmt.Errorf("--start-url and --sso-region are required")
 			}
+			if u, err := url.Parse(startURL); err != nil || !strings.HasSuffix(u.Hostname(), ".awsapps.com") {
+				return fmt.Errorf("--start-url must be an awsapps.com endpoint, got %q", startURL)
+			}
 			if !slices.Contains(sso.NamingSchemes, naming) {
 				return fmt.Errorf("invalid --naming %q (want one of %s)", naming, strings.Join(sso.NamingSchemes, ", "))
 			}

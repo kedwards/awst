@@ -126,7 +126,8 @@ func TestSubstitute_NoPlaceholdersPassesThrough(t *testing.T) {
 }
 
 func TestParseFilter_ProfileOnly(t *testing.T) {
-	got := ParseFilter("dev prod")
+	got, err := ParseFilter("dev prod")
+	require.NoError(t, err)
 	require.Equal(t, []Target{
 		{Profile: "dev", Region: "us-east-1"},
 		{Profile: "prod", Region: "us-east-1"},
@@ -134,7 +135,8 @@ func TestParseFilter_ProfileOnly(t *testing.T) {
 }
 
 func TestParseFilter_ProfileWithRegion(t *testing.T) {
-	got := ParseFilter("dev:us-east-2 prod:eu-west-1")
+	got, err := ParseFilter("dev:us-east-2 prod:eu-west-1")
+	require.NoError(t, err)
 	require.Equal(t, []Target{
 		{Profile: "dev", Region: "us-east-2"},
 		{Profile: "prod", Region: "eu-west-1"},
@@ -142,7 +144,8 @@ func TestParseFilter_ProfileWithRegion(t *testing.T) {
 }
 
 func TestParseFilter_Mixed(t *testing.T) {
-	got := ParseFilter("dev prod:eu-west-1")
+	got, err := ParseFilter("dev prod:eu-west-1")
+	require.NoError(t, err)
 	require.Equal(t, []Target{
 		{Profile: "dev", Region: "us-east-1"},
 		{Profile: "prod", Region: "eu-west-1"},
@@ -150,6 +153,19 @@ func TestParseFilter_Mixed(t *testing.T) {
 }
 
 func TestParseFilter_Empty(t *testing.T) {
-	require.Empty(t, ParseFilter(""))
-	require.Empty(t, ParseFilter("   "))
+	got, err := ParseFilter("")
+	require.NoError(t, err)
+	require.Empty(t, got)
+	got, err = ParseFilter("   ")
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
+func TestParseFilter_RejectsShellMetachars(t *testing.T) {
+	_, err := ParseFilter("prod;echo pwned")
+	require.Error(t, err)
+	_, err = ParseFilter("dev$(whoami)")
+	require.Error(t, err)
+	_, err = ParseFilter("ok:us-east-1|evil")
+	require.Error(t, err)
 }

@@ -21,5 +21,5 @@ func ContainerURL(name, target string) string {
 	_, _ = h.Write([]byte(name))
 	color := containerColors[h.Sum32()%uint32(len(containerColors))]
 	return fmt.Sprintf("ext+awst-containers:name=%s&url=%s&color=%s&icon=%s",
-		name, url.QueryEscape(target), color, defaultContainerIcon)
+		url.QueryEscape(name), url.QueryEscape(target), color, defaultContainerIcon)
 }

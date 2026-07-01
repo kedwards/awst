@@ -53,10 +53,10 @@ func firefoxExtensionGlobs() []string {
 // extensionInFile reports whether the Firefox extensions.json at path lists an
 // active awst Containers add-on, matched by its stable add-on id.
 //
-// ponytail: it also matches the upstream Granted Containers extension by name
-// ("granted", case-insensitive) as a transitional fallback so existing users
-// aren't broken before they install awst's own extension. Drop the Granted
-// branch once awst-containers is the documented default.
+// It also matches the upstream Granted Containers extension by name ("granted",
+// case-insensitive) as a transitional fallback so existing users aren't broken
+// before they install awst's own extension. Drop the Granted branch once
+// awst-containers is the documented default.
 func extensionInFile(path string) bool {
 	b, err := os.ReadFile(path)
 	if err != nil {

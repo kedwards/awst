@@ -234,7 +234,7 @@ func listCommands(w io.Writer, dirs []string) error {
 
 func buildTargets(filter string, listProfiles func() ([]string, error)) ([]runner.Target, error) {
 	if filter != "" {
-		return runner.ParseFilter(filter), nil
+		return runner.ParseFilter(filter)
 	}
 	profiles, err := listProfiles()
 	if err != nil {

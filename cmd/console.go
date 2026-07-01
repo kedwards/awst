@@ -109,9 +109,6 @@ Examples:
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			if ctx == nil {
-				ctx = context.Background()
-			}
 
 			if installExt {
 				return installExtension(cmd.OutOrStdout())
@@ -215,7 +212,9 @@ Examples:
 					return err
 				}
 				if d.openBrowser != nil {
-					_ = d.openBrowser(loginURL)
+					if err2 := d.openBrowser(loginURL); err2 != nil {
+						return fmt.Errorf("failed to open browser: %w (firefox: %v)", err2, err)
+					}
 				}
 			}
 			return nil

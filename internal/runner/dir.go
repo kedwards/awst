@@ -176,12 +176,22 @@ type Target struct {
 	Region  string
 }
 
+// validateName rejects profile or region names that contain shell metacharacters,
+// preventing injection when names are substituted into shell snippets via Substitute.
+// ponytail: validates only; Substitute is kept for back-compat with snippet files
+func validateName(s string) error {
+	if strings.ContainsAny(s, " \t\n\"'\\;|&<>$`(){}[]!") {
+		return fmt.Errorf("unsafe characters in name %q", s)
+	}
+	return nil
+}
+
 // ParseFilter parses a space-separated filter argument: each token is
 // either "profile" (default region) or "profile:region".
-func ParseFilter(s string) []Target {
+func ParseFilter(s string) ([]Target, error) {
 	fields := strings.Fields(s)
 	if len(fields) == 0 {
-		return nil
+		return nil, nil
 	}
 	out := make([]Target, 0, len(fields))
 	for _, f := range fields {
@@ -192,7 +202,13 @@ func ParseFilter(s string) []Target {
 		} else {
 			t.Profile = f
 		}
+		if err := validateName(t.Profile); err != nil {
+			return nil, err
+		}
+		if err := validateName(t.Region); err != nil {
+			return nil, err
+		}
 		out = append(out, t)
 	}
-	return out
+	return out, nil
 }
