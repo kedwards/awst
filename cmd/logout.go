@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/kedwards/awst/v3/internal/creds"
 	"github.com/kedwards/awst/v3/internal/paths"
 	"github.com/kedwards/awst/v3/internal/sso"
 )
@@ -24,22 +25,33 @@ func defaultLogoutDeps() logoutDeps {
 
 func newLogoutCmd(d logoutDeps) *cobra.Command {
 	var profileFlag string
+	var export bool
+	var shellName string
+	var clearCache bool
 	c := &cobra.Command{
 		Use:   "logout [profile]",
-		Short: "Clear cached SSO session token(s)",
-		Long: `Remove cached SSO session tokens so the next login runs the device
-flow again.
+		Short: "Clear the AWS credential env vars from the current shell",
+		Long: `Clear the AWS credential env vars from the current shell (the counterpart
+to ` + "`awst <profile>`" + `). By default the cached SSO token is left in place,
+so the next login skips the device flow.
 
-With a [profile], only that profile's sso_session token is cleared. With no
-[profile], all cached SSO tokens are cleared (like ` + "`aws sso logout`" + `).
+With --clear-cache, the cached SSO token is also removed (like
+` + "`aws sso logout`" + `), so the next login re-runs the device flow. With a
+[profile], only that profile's sso_session token is cleared; with no [profile],
+all cached SSO tokens are cleared.
+
+Clearing the shell env vars requires the ` + "`awst shell init`" + ` wrapper, which
+runs ` + "`logout --export`" + ` and eval's the emitted unset statements. --export
+prints those statements on stdout (status text stays on stderr) directly.
 
 The profile may be given positionally or with --profile/-p; the two forms are
 equivalent (giving both is an error).
 
 Examples:
-  awst logout              # clear all cached SSO tokens
-  awst logout dev          # clear only dev's sso_session token
-  awst logout --profile dev`,
+  awst logout                      # clear shell creds, keep the SSO token
+  awst logout --clear-cache        # also forget all cached SSO tokens
+  awst logout --clear-cache dev    # also forget only dev's sso_session token
+  eval "$(awst logout --export)"`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -52,26 +64,39 @@ Examples:
 				return err
 			}
 
-			if profile == "" {
-				n, err := d.cache.DeleteAll()
+			if clearCache {
+				if profile == "" {
+					n, err := d.cache.DeleteAll()
+					if err != nil {
+						return err
+					}
+					fmt.Fprintf(cmd.ErrOrStderr(), "Cleared %d cached SSO token(s). Next login will re-run the device flow.\n", n)
+				} else {
+					sess, err := d.sessionLoader(ctx, profile, "")
+					if err != nil {
+						return err
+					}
+					if err := d.cache.Delete(sess.Name); err != nil {
+						return err
+					}
+					fmt.Fprintf(cmd.ErrOrStderr(), "Cleared SSO token for sso_session %q. Next login will re-run the device flow.\n", sess.Name)
+				}
+			}
+
+			if export {
+				shell, err := creds.ParseShell(shellName)
 				if err != nil {
 					return err
 				}
-				fmt.Fprintf(cmd.ErrOrStderr(), "Cleared %d cached SSO token(s). Next login will re-run the device flow.\n", n)
-				return nil
+				fmt.Fprint(cmd.OutOrStdout(), creds.FormatUnset(shell))
+				fmt.Fprintln(cmd.ErrOrStderr(), "Cleared AWS credential env vars from the current shell.")
 			}
-
-			sess, err := d.sessionLoader(ctx, profile, "")
-			if err != nil {
-				return err
-			}
-			if err := d.cache.Delete(sess.Name); err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.ErrOrStderr(), "Cleared SSO token for sso_session %q. Next login will re-run the device flow.\n", sess.Name)
 			return nil
 		},
 	}
 	c.Flags().StringVarP(&profileFlag, "profile", "p", "", "AWS profile (alternative to the positional [profile])")
+	c.Flags().BoolVarP(&export, "export", "e", false, "Print statements on stdout that unset the AWS credential env vars, for eval")
+	c.Flags().StringVar(&shellName, "shell", "posix", "Unset syntax with --export: posix or powershell")
+	c.Flags().BoolVar(&clearCache, "clear-cache", false, "Also remove the cached SSO token(s), forcing a device-flow re-login")
 	return c
 }

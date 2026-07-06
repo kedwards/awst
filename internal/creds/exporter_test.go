@@ -82,6 +82,23 @@ func TestFormatExports_IncludesRegionWhenSet(t *testing.T) {
 	require.Contains(t, out, `export AWS_DEFAULT_REGION="us-east-1"`+"\n")
 }
 
+func TestFormatUnset_Posix(t *testing.T) {
+	out := FormatUnset(ShellPosix)
+	require.True(t, strings.HasPrefix(out, "unset "))
+	for _, v := range awstEnvVars {
+		require.Contains(t, out, v)
+	}
+	// A single unset line keeps it to one eval'able statement.
+	require.Equal(t, 1, strings.Count(strings.TrimSpace(out), "\n")+1)
+}
+
+func TestFormatUnset_PowerShell(t *testing.T) {
+	out := FormatUnset(ShellPowerShell)
+	for _, v := range awstEnvVars {
+		require.Contains(t, out, "Remove-Item Env:"+v+" -ErrorAction SilentlyContinue")
+	}
+}
+
 func TestParseShell(t *testing.T) {
 	for _, in := range []string{"posix", "powershell"} {
 		got, err := ParseShell(in)

@@ -48,7 +48,7 @@ func EnsureToken(
 	if now == nil {
 		now = time.Now
 	}
-	if tok, err := cache.Load(sess.Name); err == nil && tok.AccessToken != "" && tok.ExpiresAt.After(now()) {
+	if tok, err := cache.Load(sess.Name); err == nil && tok.AccessToken != "" && tok.ExpiresAt.After(now().Add(5*time.Minute)) {
 		return tok, true, nil
 	}
 

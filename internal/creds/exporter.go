@@ -61,6 +61,27 @@ func FormatExports(profile string, c Credentials, shell Shell) string {
 	return b.String()
 }
 
+// awstEnvVars are the environment variables awst sets on login. FormatUnset
+// clears exactly these — no more, no less.
+var awstEnvVars = []string{
+	"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+	"AWS_REGION", "AWS_DEFAULT_REGION", "AWS_PROFILE",
+}
+
+// FormatUnset returns shell statements that clear the credential env vars awst
+// sets on login. Consumed the same way as FormatExports: eval "$(...)" for
+// posix, `... | iex` for PowerShell.
+func FormatUnset(shell Shell) string {
+	if shell == ShellPowerShell {
+		var b strings.Builder
+		for _, v := range awstEnvVars {
+			fmt.Fprintf(&b, "Remove-Item Env:%s -ErrorAction SilentlyContinue\n", v)
+		}
+		return b.String()
+	}
+	return "unset " + strings.Join(awstEnvVars, " ") + "\n"
+}
+
 // psQuote single-quotes a value for PowerShell. Single quotes are literal
 // (no interpolation, so a '$' in a token is safe); an embedded single quote
 // is escaped by doubling it.

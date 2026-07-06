@@ -27,6 +27,9 @@ func NewStore(dir string) *Store {
 }
 
 func (s *Store) Save(profile string, c Credentials) error {
+	if err := validateProfile(profile); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 		return fmt.Errorf("create creds dir: %w", err)
 	}
@@ -65,6 +68,9 @@ func (s *Store) Save(profile string, c Credentials) error {
 }
 
 func (s *Store) Load(profile string) (Credentials, error) {
+	if err := validateProfile(profile); err != nil {
+		return Credentials{}, err
+	}
 	f, err := os.Open(s.path(profile))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -105,6 +111,9 @@ func (s *Store) Load(profile string) (Credentials, error) {
 }
 
 func (s *Store) Delete(profile string) error {
+	if err := validateProfile(profile); err != nil {
+		return err
+	}
 	err := os.Remove(s.path(profile))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -159,6 +168,13 @@ func (s *Store) List() ([]ProfileInfo, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+func validateProfile(name string) error {
+	if strings.ContainsRune(name, '/') || strings.ContainsRune(name, '\\') {
+		return fmt.Errorf("invalid profile name %q: path separators not allowed", name)
+	}
+	return nil
 }
 
 func (s *Store) path(profile string) string {

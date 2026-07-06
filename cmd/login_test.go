@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ssooidc"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
@@ -89,6 +90,19 @@ func loginTestDeps(t *testing.T, configFile string, openBrowserCalled *bool) log
 		selectProfile: func([]tui.ProfileItem) (string, error) {
 			t.Fatal("selectProfile should not be called")
 			return "", nil
+		},
+		pickRegion: func() (string, error) {
+			t.Fatal("pickRegion should not be called")
+			return "", nil
+		},
+		profileRegion: func(_ context.Context, profile string) string {
+			sc, err := config.LoadSharedConfigProfile(context.Background(), profile, func(o *config.LoadSharedConfigOptions) {
+				o.ConfigFiles = []string{configFile}
+			})
+			if err != nil {
+				return ""
+			}
+			return sc.Region
 		},
 		isTerminal: func() bool { return true },
 		providerFactory: func(_ context.Context, _, _ string) (creds.Provider, string, error) {
@@ -268,7 +282,10 @@ func TestLogin_ExportRegionFlagPassedThrough(t *testing.T) {
 func TestLogin_ExportRegionDefaultsToUsEast1(t *testing.T) {
 	cfg := writeAWSConfig(t, ssoSessionConfig)
 	d := loginTestDeps(t, cfg, nil)
-	// Neither a flag nor a resolved region — should fall back to us-east-1.
+	// No region pinned by the profile and no terminal to pick from — should
+	// fall back to us-east-1 without invoking the picker.
+	d.isTerminal = func() bool { return false }
+	d.profileRegion = func(context.Context, string) string { return "" }
 	d.providerFactory = func(_ context.Context, _, _ string) (creds.Provider, string, error) {
 		return stubProvider{creds: aws.Credentials{AccessKeyID: "AKIA", SecretAccessKey: "s", SessionToken: "t"}}, "", nil
 	}
@@ -277,6 +294,40 @@ func TestLogin_ExportRegionDefaultsToUsEast1(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, stdout, `export AWS_REGION="us-east-1"`)
 	require.Contains(t, stdout, `export AWS_DEFAULT_REGION="us-east-1"`)
+}
+
+func TestLogin_ExportNoRegionPicksInteractively(t *testing.T) {
+	cfg := writeAWSConfig(t, ssoSessionConfig)
+	d := loginTestDeps(t, cfg, nil)
+	// Simulate a prior login having exported a region into this shell; it must
+	// NOT suppress the picker when switching accounts.
+	t.Setenv("AWS_REGION", "us-west-2")
+	// No -r and no region pinned by the profile, but stdin is a terminal:
+	// offer the picker.
+	d.profileRegion = func(context.Context, string) string { return "" }
+	d.providerFactory = func(_ context.Context, _, _ string) (creds.Provider, string, error) {
+		return stubProvider{creds: aws.Credentials{AccessKeyID: "AKIA", SecretAccessKey: "s", SessionToken: "t"}}, "", nil
+	}
+	d.pickRegion = func() (string, error) { return "ap-southeast-2", nil }
+
+	stdout, _, err := runLogin(t, d, "login", "dev", "--export", "--no-browser")
+	require.NoError(t, err)
+	require.Contains(t, stdout, `export AWS_REGION="ap-southeast-2"`)
+	require.Contains(t, stdout, `export AWS_DEFAULT_REGION="ap-southeast-2"`)
+}
+
+func TestLogin_ExportRegionPickerAbortedIsNoOp(t *testing.T) {
+	cfg := writeAWSConfig(t, ssoSessionConfig)
+	d := loginTestDeps(t, cfg, nil)
+	d.profileRegion = func(context.Context, string) string { return "" }
+	d.providerFactory = func(_ context.Context, _, _ string) (creds.Provider, string, error) {
+		return stubProvider{creds: aws.Credentials{AccessKeyID: "AKIA", SecretAccessKey: "s", SessionToken: "t"}}, "", nil
+	}
+	d.pickRegion = func() (string, error) { return "", tui.ErrAborted }
+
+	stdout, _, err := runLogin(t, d, "login", "dev", "--export", "--no-browser")
+	require.NoError(t, err, "aborting the region picker is a clean no-op")
+	require.Empty(t, stdout, "no exports emitted when the region picker is aborted")
 }
 
 func TestLogin_NoBrowserFlagSuppressesOpen(t *testing.T) {

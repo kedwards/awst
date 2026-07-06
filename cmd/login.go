@@ -29,6 +29,8 @@ type loginDeps struct {
 	now             func() time.Time
 	listProfiles    func() ([]string, error)
 	selectProfile   func(items []tui.ProfileItem) (string, error)
+	pickRegion      func() (string, error)
+	profileRegion   func(ctx context.Context, profile string) string
 	isTerminal      func() bool
 	providerFactory func(ctx context.Context, profile, region string) (creds.Provider, string, error)
 }
@@ -47,8 +49,16 @@ func defaultLoginDeps() loginDeps {
 		openBrowser:     openBrowser,
 		sleep:           time.Sleep,
 		now:             time.Now,
-		listProfiles:    defaultListProfiles,
-		selectProfile:   tui.SelectProfile,
+		listProfiles:  defaultListProfiles,
+		selectProfile: tui.SelectProfile,
+		pickRegion: func() (string, error) {
+			regs, err := regionsEffective()
+			if err != nil {
+				return "", err
+			}
+			return tui.SelectRegion(regs)
+		},
+		profileRegion:   lookupProfileRegion,
 		isTerminal:      func() bool { return term.IsTerminal(os.Stdin.Fd()) },
 		providerFactory: creds.NewSDKProvider,
 	}
@@ -157,7 +167,7 @@ Examples:
 			if err != nil {
 				return err
 			}
-			p, effRegion, err := d.providerFactory(ctx, profile, region)
+			p, _, err := d.providerFactory(ctx, profile, region)
 			if err != nil {
 				return err
 			}
@@ -165,11 +175,26 @@ Examples:
 			if err != nil {
 				return err
 			}
-			// Prefer --region, then the profile/SDK-resolved region, and fall
-			// back to us-east-1 so a region var is always exported.
+			// Region precedence: --region, then the profile's pinned region=
+			// in config. A stale AWS_REGION left in the environment by a
+			// previous `awst login` deliberately does NOT count here — otherwise
+			// switching accounts would silently reuse the old region and skip
+			// the picker. When nothing pins a region, offer an interactive
+			// picker (skipped with -r/--region or a non-terminal stdin), and
+			// finally fall back to us-east-1 so a region var is always exported.
 			resolved.Region = region
 			if resolved.Region == "" {
-				resolved.Region = effRegion
+				resolved.Region = d.profileRegion(ctx, profile)
+			}
+			if resolved.Region == "" && d.isTerminal() {
+				r, err := d.pickRegion()
+				if err != nil {
+					if errors.Is(err, tui.ErrAborted) {
+						return nil // user quit the region picker; nothing to do
+					}
+					return err
+				}
+				resolved.Region = r
 			}
 			if resolved.Region == "" {
 				resolved.Region = "us-east-1"

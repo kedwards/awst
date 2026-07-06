@@ -18,13 +18,21 @@
   const payload = raw.replace(/^ext\+awst-containers:/, "");
   const p = new URLSearchParams(payload);
 
+  const VALID_COLORS = ["blue", "turquoise", "green", "yellow", "orange", "red", "pink", "purple"];
+  const VALID_ICONS = ["fingerprint", "briefcase", "dollar", "cart", "gift", "vacation", "food", "pet", "shopping", "tree",",color", "fence"];
+
   const name = p.get("name") || "aws";
   const url = p.get("url");
-  const color = p.get("color") || "blue";
-  const icon = p.get("icon") || "fingerprint";
+  const color = VALID_COLORS.includes(p.get("color")) ? p.get("color") : "blue";
+  const icon = VALID_ICONS.includes(p.get("icon")) ? p.get("icon") : "fingerprint";
 
   if (!url) {
     fail("missing url parameter");
+    return;
+  }
+
+  if (!url.startsWith("https://signin.aws.amazon.com") && !url.startsWith("https://console.aws.amazon.com")) {
+    fail("url must be an AWS console URL (https://signin.aws.amazon.com or https://console.aws.amazon.com)");
     return;
   }
 

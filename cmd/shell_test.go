@@ -26,6 +26,9 @@ func TestShellInit_Posix(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, out, "awst() {")
 	require.Contains(t, out, `eval "$(command awst login --export "$@")"`)
+	require.Contains(t, out, `eval "$(command awst logout --export "$@")"`)
+	// logout must NOT be a plain passthrough, or it can't clear the env vars.
+	require.NotContains(t, out, "|logout|")
 }
 
 func TestShellInit_PowerShell(t *testing.T) {
@@ -34,4 +37,7 @@ func TestShellInit_PowerShell(t *testing.T) {
 	require.Contains(t, out, "function awst")
 	require.Contains(t, out, "Invoke-Expression")
 	require.Contains(t, out, "login --export --shell powershell")
+	require.Contains(t, out, "logout --export --shell powershell")
+	// logout must be dropped from the passthrough list (else it can't clear env).
+	require.NotContains(t, out, "'kill','logout'")
 }

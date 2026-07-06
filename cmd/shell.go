@@ -10,12 +10,16 @@ import (
 // subcommands pass straight through; a bare first arg (or `login`) is treated
 // as a profile, run through `login --export`, and its stdout eval'd so the
 // credential env vars land in the current shell — the assume <profile> UX.
+// `logout` is likewise eval'd (via `logout --export`) so it clears those env
+// vars from the current shell.
 const posixShellInit = `awst() {
   case "${1:-}" in
-    creds|connect|console|exec|run|list|kill|logout|config|sso|shell|completion|help|--help|-h|--version|-v|"")
+    creds|connect|console|exec|run|list|kill|config|sso|shell|completion|help|--help|-h|--version|-v|"")
       command awst "$@" ;;
     login)
       shift; eval "$(command awst login --export "$@")" ;;
+    logout)
+      shift; eval "$(command awst logout --export "$@")" ;;
     *)
       eval "$(command awst login --export "$@")" ;;
   esac
@@ -25,12 +29,17 @@ const posixShellInit = `awst() {
 // powershellShellInit is the PowerShell equivalent: passthrough for known
 // subcommands, otherwise login --export piped through Invoke-Expression.
 const powershellShellInit = `function awst {
-  $passthrough = 'creds','connect','console','exec','run','list','kill','logout','config','sso','shell','completion','help','--help','-h','--version','-v'
+  $passthrough = 'creds','connect','console','exec','run','list','kill','config','sso','shell','completion','help','--help','-h','--version','-v'
   if ($args.Count -eq 0 -or $passthrough -contains $args[0]) {
     & (Get-Command awst -CommandType Application) @args
     return
   }
-  $rest = if ($args[0] -eq 'login') { $args[1..($args.Count-1)] } else { $args }
+  $tail = if ($args.Count -gt 1) { $args[1..($args.Count-1)] } else { @() }
+  if ($args[0] -eq 'logout') {
+    & (Get-Command awst -CommandType Application) logout --export --shell powershell @tail | Invoke-Expression
+    return
+  }
+  $rest = if ($args[0] -eq 'login') { $tail } else { $args }
   & (Get-Command awst -CommandType Application) login --export --shell powershell @rest | Invoke-Expression
 }
 `
