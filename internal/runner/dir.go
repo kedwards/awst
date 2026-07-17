@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 const defaultRegion = "us-east-1"
@@ -186,10 +187,13 @@ func validateName(s string) error {
 	return nil
 }
 
-// ParseFilter parses a space-separated filter argument: each token is
-// either "profile" (default region) or "profile:region".
+// ParseFilter parses a filter argument whose tokens are separated by commas
+// and/or whitespace: each token is either "profile" (default region) or
+// "profile:region".
 func ParseFilter(s string) ([]Target, error) {
-	fields := strings.Fields(s)
+	fields := strings.FieldsFunc(s, func(r rune) bool {
+		return r == ',' || unicode.IsSpace(r)
+	})
 	if len(fields) == 0 {
 		return nil, nil
 	}

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.13.0] - 2026-07-17
+
+### Changed
+- `awst run` no longer fans out across every profile in `~/.aws/config` when no `profile:region` filter is given. In a terminal it now shows an interactive picker: multi-select the profiles, then choose a region for each. With no filter and no terminal (pipe/CI) it errors instead of running against all accounts.
+- `awst run` now triggers the same SSO device-flow login as `connect` and `console` (via `sso.EnsureToken`) when a profile's cached token is missing or expired, instead of silently skipping the profile.
+- The `run` filter argument accepts comma- and/or space-separated tokens, so `"dev:us-east-1,prod:us-west-2"` and `"dev prod"` both work.
+
 ## [3.9.1] - 2026-06-28
 
 ### Changed

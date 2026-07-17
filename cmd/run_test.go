@@ -13,6 +13,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kedwards/awst/v3/internal/runner"
+	"github.com/kedwards/awst/v3/internal/tui"
 )
 
 type childCall struct {
@@ -79,9 +82,16 @@ func newTestDeps(t *testing.T, baseDir string, child *childRecorder) runDeps {
 				"AWS_SESSION_TOKEN=token-" + profile,
 			}, nil
 		},
-		listProfiles: func() ([]string, error) { return []string{"dev", "prod"}, nil },
-		runChild:     child.run,
-		shell:        func() (string, error) { return "sh", nil },
+		// Default no-filter resolution for tests: two targets, no real picker.
+		resolveTargets: func(_ context.Context) ([]runner.Target, error) {
+			return []runner.Target{
+				{Profile: "dev", Region: "us-east-1"},
+				{Profile: "prod", Region: "us-east-1"},
+			}, nil
+		},
+		ensureLogin: func(_ context.Context, _ io.Writer, _ string) error { return nil },
+		runChild:    child.run,
+		shell:       func() (string, error) { return "sh", nil },
 		getenv: func(k string) string {
 			if k == "AWST_RUN_CMD_BASE" || k == "AWST_RUN_CMD_USER" {
 				return baseDir
@@ -111,7 +121,7 @@ func TestRun_ListsCommandsWhenNoArgs(t *testing.T) {
 	require.Empty(t, child.calls, "list mode should not invoke child")
 }
 
-func TestRun_SnippetExpandsAndIteratesAllProfiles(t *testing.T) {
+func TestRun_SnippetNoFilterUsesResolvedTargets(t *testing.T) {
 	d := t.TempDir()
 	writeFileT(t, d, "vpc-cidrs", "# header\naws ec2 describe-vpcs --region #REGION\n", false)
 
@@ -224,6 +234,42 @@ func TestRun_AuthFailure_WarnAndContinue(t *testing.T) {
 	require.Contains(t, stderr, "skip")
 	require.Len(t, child.calls, 1, "only the successful profile runs")
 	require.Equal(t, "prod", child.calls[0].env["AWS_PROFILE"])
+}
+
+func TestRun_LoginFailure_SkipsProfile(t *testing.T) {
+	d := t.TempDir()
+	writeFileT(t, d, "snippet", "echo #ENV\n", false)
+
+	child := &childRecorder{}
+	deps := newTestDeps(t, d, child)
+	deps.ensureLogin = func(_ context.Context, _ io.Writer, profile string) error {
+		if profile == "dev" {
+			return errors.New("device authorization declined")
+		}
+		return nil
+	}
+
+	_, stderr, err := runRunCmd(t, deps, "run", "-d", d, "snippet", "dev prod")
+	require.NoError(t, err)
+	require.Contains(t, stderr, "skip")
+	require.Contains(t, stderr, "dev")
+	require.Len(t, child.calls, 1, "login failure skips that profile before running")
+	require.Equal(t, "prod", child.calls[0].env["AWS_PROFILE"])
+}
+
+func TestRun_NoFilterAborted_ExitsClean(t *testing.T) {
+	d := t.TempDir()
+	writeFileT(t, d, "snippet", "echo #ENV\n", false)
+
+	child := &childRecorder{}
+	deps := newTestDeps(t, d, child)
+	deps.resolveTargets = func(_ context.Context) ([]runner.Target, error) {
+		return nil, tui.ErrAborted
+	}
+
+	_, _, err := runRunCmd(t, deps, "run", "-d", d, "snippet")
+	require.NoError(t, err, "aborting the picker is a clean no-op exit")
+	require.Empty(t, child.calls)
 }
 
 func TestRun_UnknownCommand(t *testing.T) {

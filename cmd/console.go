@@ -316,22 +316,6 @@ func firefoxPath() (string, error) {
 // flow when needed. A profile without an sso_session (static/env creds) is a
 // no-op — credential resolution handles it. Prompts go to cmd's stderr.
 func (d consoleDeps) ensureLogin(ctx context.Context, cmd *cobra.Command, profile string, noBrowser bool) error {
-	if d.cache == nil || d.sessionLoader == nil {
-		return nil
-	}
-	sess, err := d.sessionLoader(ctx, profile, "")
-	if err != nil {
-		return nil // not an SSO profile; let credential resolution proceed
-	}
-	prompt := func(uri, code string) {
-		fmt.Fprintf(cmd.ErrOrStderr(),
-			"Open this URL in your browser to authorize awst:\n  %s\nUser code: %s\n", uri, code)
-		if !noBrowser && d.openBrowser != nil {
-			_ = d.openBrowser(uri)
-		}
-	}
-	_, _, err = sso.EnsureToken(ctx, d.cache, sess,
-		func() (sso.OIDCClient, error) { return d.oidcFactory(ctx, sess.Region) },
-		prompt, d.sleep, d.now)
-	return err
+	return ssoLogin{d.cache, d.sessionLoader, d.oidcFactory, d.openBrowser, d.sleep, d.now}.
+		ensure(ctx, cmd.ErrOrStderr(), profile, noBrowser)
 }

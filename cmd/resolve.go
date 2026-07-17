@@ -2,13 +2,19 @@ package cmd
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"os"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/charmbracelet/x/term"
 
 	"github.com/kedwards/awst/v3/internal/paths"
 	"github.com/kedwards/awst/v3/internal/regions"
+	"github.com/kedwards/awst/v3/internal/runner"
+	"github.com/kedwards/awst/v3/internal/sso"
 	"github.com/kedwards/awst/v3/internal/tui"
 )
 
@@ -101,4 +107,85 @@ func resolveProfileRegion(ctx context.Context, profile, region string, isTermina
 		return "", "", err
 	}
 	return p, r, nil
+}
+
+// ssoLogin holds the SSO device-flow collaborators shared by the commands that
+// auto-login (console, connect, run). Its ensure method is the single copy of
+// the "log in if the cached token is missing or expired" logic.
+type ssoLogin struct {
+	cache         *sso.Cache
+	sessionLoader func(ctx context.Context, profile, configFile string) (sso.SSOSession, error)
+	oidcFactory   func(ctx context.Context, region string) (sso.OIDCClient, error)
+	openBrowser   func(string) error
+	sleep         func(time.Duration)
+	now           func() time.Time
+}
+
+// ensure guarantees a valid SSO token for an SSO profile, running the device
+// flow when needed. A profile without an sso_session (static/env creds) is a
+// no-op — credential resolution handles it. Prompts go to errOut; the browser
+// is opened unless noBrowser is set.
+func (s ssoLogin) ensure(ctx context.Context, errOut io.Writer, profile string, noBrowser bool) error {
+	if s.cache == nil || s.sessionLoader == nil {
+		return nil
+	}
+	sess, err := s.sessionLoader(ctx, profile, "")
+	if err != nil {
+		return nil // not an SSO profile; let credential resolution proceed
+	}
+	prompt := func(uri, code string) {
+		fmt.Fprintf(errOut,
+			"Open this URL in your browser to authorize awst:\n  %s\nUser code: %s\n", uri, code)
+		if !noBrowser && s.openBrowser != nil {
+			_ = s.openBrowser(uri)
+		}
+	}
+	_, _, err = sso.EnsureToken(ctx, s.cache, sess,
+		func() (sso.OIDCClient, error) { return s.oidcFactory(ctx, sess.Region) },
+		prompt, s.sleep, s.now)
+	return err
+}
+
+// resolveTargetsInteractive builds the run targets when no filter was given:
+// multi-select the profiles, then pick a region per selected profile. It errors
+// (rather than falling back to "all profiles") when stdin isn't a terminal, so
+// pipes/CI must pass an explicit filter. Pickers are injected for testing.
+func resolveTargetsInteractive(ctx context.Context,
+	isTerminal func() bool,
+	listProfiles func() ([]string, error),
+	pickProfiles func([]tui.ProfileItem) ([]string, error),
+	regionList func() ([]string, error),
+	pickRegion func(profile string, regions []string) (string, error),
+) ([]runner.Target, error) {
+	if isTerminal == nil || !isTerminal() {
+		return nil, errors.New(`no profile:region filter given and stdin is not a terminal; pass targets like "dev:us-east-1"`)
+	}
+	names, err := listProfiles()
+	if err != nil {
+		return nil, err
+	}
+	if len(names) == 0 {
+		return nil, errors.New("no profiles found in ~/.aws/config")
+	}
+	items := make([]tui.ProfileItem, len(names))
+	for i, n := range names {
+		items[i] = tui.ProfileItem{Profile: n}
+	}
+	chosen, err := pickProfiles(items)
+	if err != nil {
+		return nil, err // may be tui.ErrAborted
+	}
+	regionsList, err := regionList()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]runner.Target, 0, len(chosen))
+	for _, p := range chosen {
+		r, err := pickRegion(p, regionsList)
+		if err != nil {
+			return nil, err // may be tui.ErrAborted
+		}
+		out = append(out, runner.Target{Profile: p, Region: r})
+	}
+	return out, nil
 }

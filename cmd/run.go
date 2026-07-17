@@ -10,29 +10,54 @@ import (
 	"os/exec"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ssooidc"
 	"github.com/spf13/cobra"
 
 	"github.com/kedwards/awst/v3/internal/paths"
 	"github.com/kedwards/awst/v3/internal/runner"
+	"github.com/kedwards/awst/v3/internal/sso"
+	"github.com/kedwards/awst/v3/internal/tui"
 )
 
 type runDeps struct {
-	resolveCreds func(ctx context.Context, profile, region string) ([]string, error)
-	listProfiles func() ([]string, error)
-	runChild     func(args []string, env []string, stdout, stderr io.Writer) (int, error)
-	getenv       func(string) string
-	shell        func() (string, error) // POSIX shell for snippets/inline
+	resolveCreds   func(ctx context.Context, profile, region string) ([]string, error)
+	resolveTargets func(ctx context.Context) ([]runner.Target, error) // used when no filter is given
+	ensureLogin    func(ctx context.Context, errOut io.Writer, profile string) error
+	runChild       func(args []string, env []string, stdout, stderr io.Writer) (int, error)
+	getenv         func(string) string
+	shell          func() (string, error) // POSIX shell for snippets/inline
 }
 
 func defaultRunDeps() runDeps {
 	defaultBase := paths.RunCommandsDir()
+	login := ssoLogin{
+		cache:         sso.NewCache(paths.SSOCacheDir()),
+		sessionLoader: sso.LoadSSOSession,
+		oidcFactory: func(ctx context.Context, region string) (sso.OIDCClient, error) {
+			cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+			if err != nil {
+				return nil, fmt.Errorf("load aws config: %w", err)
+			}
+			return ssooidc.NewFromConfig(cfg), nil
+		},
+		openBrowser: openBrowser,
+		sleep:       time.Sleep,
+		now:         time.Now,
+	}
 	return runDeps{
 		resolveCreds: defaultResolveCreds,
-		listProfiles: defaultListProfiles,
-		runChild:     defaultRunChild,
-		shell:        runner.POSIXShell,
+		resolveTargets: func(ctx context.Context) ([]runner.Target, error) {
+			return resolveTargetsInteractive(ctx, isStdinTerminal, defaultListProfiles,
+				tui.SelectProfiles, regionsEffective, tui.SelectRegionFor)
+		},
+		ensureLogin: func(ctx context.Context, errOut io.Writer, profile string) error {
+			return login.ensure(ctx, errOut, profile, false)
+		},
+		runChild: defaultRunChild,
+		shell:    runner.POSIXShell,
 		getenv: func(k string) string {
 			v := os.Getenv(k)
 			if v != "" {
@@ -60,18 +85,20 @@ and region; AWS_PROFILE / AWS_REGION / AWS_ACCESS_KEY_ID / etc. are
 also exported into the child process environment, so new snippets can
 just reference $AWS_PROFILE directly.
 
-Filter syntax (positional): space-separated "profile" or
-"profile:region" tokens. No filter → iterate every profile in
-~/.aws/config (default region us-east-1).
+Filter syntax (positional): comma- and/or space-separated "profile" or
+"profile:region" tokens. No filter → an interactive picker: multi-select
+the profiles, then choose a region for each (bare "profile" tokens default
+to us-east-1). With no filter and no terminal (pipe/CI), run errors instead
+of guessing.
 
 Executable scripts with no filter run once without profile iteration —
 the script is expected to handle its own iteration.
 
 Examples:
   awst run                                     # list available commands
-  awst run vpc-cidrs                           # snippet across all profiles
+  awst run vpc-cidrs                           # pick profiles + regions
   awst run vpc-cidrs "dev prod:us-west-2"      # filtered
-  awst run -q "aws s3 ls" "dev prod"           # inline command
+  awst run -q "aws s3 ls" "dev,prod:us-west-2" # inline command
   awst run -d ./snippets my-snippet "dev"      # custom commands dir`,
 		Args: cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -153,22 +180,33 @@ Examples:
 				}
 			}
 
-			targets, err := buildTargets(filter, d.listProfiles)
+			ctx := cmd.Context()
+			if ctx == nil {
+				ctx = context.Background()
+			}
+
+			targets, err := buildTargets(ctx, filter, d.resolveTargets)
 			if err != nil {
+				if errors.Is(err, tui.ErrAborted) {
+					return nil // user quit the picker; clean no-op exit
+				}
 				return err
 			}
 			if len(targets) == 0 {
 				return errors.New("no profiles to run against")
 			}
 
-			ctx := cmd.Context()
-			if ctx == nil {
-				ctx = context.Background()
-			}
-
 			var failed []string
 			for _, t := range targets {
 				fmt.Fprintln(cmd.OutOrStdout(), t.Profile)
+				if d.ensureLogin != nil {
+					if err := d.ensureLogin(ctx, cmd.ErrOrStderr(), t.Profile); err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(),
+							"  skip %s (%s): %v\n", t.Profile, t.Region, err)
+						failed = append(failed, t.Profile)
+						continue
+					}
+				}
 				creds, err := d.resolveCreds(ctx, t.Profile, t.Region)
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(),
@@ -232,19 +270,12 @@ func listCommands(w io.Writer, dirs []string) error {
 	return nil
 }
 
-func buildTargets(filter string, listProfiles func() ([]string, error)) ([]runner.Target, error) {
+func buildTargets(ctx context.Context, filter string, resolveTargets func(context.Context) ([]runner.Target, error)) ([]runner.Target, error) {
 	if filter != "" {
 		return runner.ParseFilter(filter)
 	}
-	profiles, err := listProfiles()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]runner.Target, 0, len(profiles))
-	for _, p := range profiles {
-		out = append(out, runner.Target{Profile: p, Region: "us-east-1"})
-	}
-	return out, nil
+	// No explicit targets: prompt for them (never fan out across every profile).
+	return resolveTargets(ctx)
 }
 
 // defaultResolveCreds uses the SDK chain for a profile and returns its

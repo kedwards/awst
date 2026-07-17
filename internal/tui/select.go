@@ -136,6 +136,106 @@ func SelectProfile(items []ProfileItem) (string, error) {
 	return fm.choice, nil
 }
 
+// multiDelegate renders a profile on a single line with a ">" cursor and a
+// "[x]"/"[ ]" checkbox. Selection is keyed by profile name (via the shared
+// map) so filtering/reordering the list can't corrupt which rows are checked.
+type multiDelegate struct{ selected map[string]bool }
+
+func (multiDelegate) Height() int                             { return 1 }
+func (multiDelegate) Spacing() int                            { return 0 }
+func (multiDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
+func (d multiDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	it, ok := item.(ProfileItem)
+	if !ok {
+		return
+	}
+	box := "[ ] "
+	if d.selected[it.Profile] {
+		box = "[x] "
+	}
+	if index == m.Index() {
+		fmt.Fprint(w, "> "+box+selectedStyle.Render(it.Profile))
+		return
+	}
+	fmt.Fprint(w, "  "+box+it.Profile)
+}
+
+// multiModel is a list where space toggles the row under the cursor and enter
+// confirms the whole selection. esc/q/ctrl-c abort.
+type multiModel struct {
+	list     list.Model
+	selected map[string]bool
+	aborted  bool
+}
+
+func (m multiModel) Init() tea.Cmd { return nil }
+
+func (m multiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		target := min(len(m.list.Items()), 10)
+		m.list.SetSize(msg.Width, msg.Height)
+		if over := m.list.Paginator.PerPage - target; over > 0 {
+			m.list.SetSize(msg.Width, msg.Height-over)
+		}
+		return m, nil
+	case tea.KeyMsg:
+		if m.list.FilterState() != list.Filtering {
+			switch msg.String() {
+			case "ctrl+c", "esc", "q":
+				m.aborted = true
+				return m, tea.Quit
+			case " ":
+				if it, ok := m.list.SelectedItem().(ProfileItem); ok {
+					m.selected[it.Profile] = !m.selected[it.Profile]
+				}
+				return m, nil
+			case "enter":
+				return m, tea.Quit
+			}
+		}
+	}
+	var cmd tea.Cmd
+	m.list, cmd = m.list.Update(msg)
+	return m, cmd
+}
+
+func (m multiModel) View() string { return m.list.View() }
+
+// SelectProfiles shows a multi-select list of profiles: space toggles a row,
+// enter confirms. It returns the chosen profile names in list order, or
+// ErrAborted if the user quits or confirms with nothing selected.
+func SelectProfiles(items []ProfileItem) ([]string, error) {
+	rows := make([]list.Item, len(items))
+	for i, it := range items {
+		rows[i] = it
+	}
+	selected := map[string]bool{}
+	l := list.New(rows, multiDelegate{selected: selected}, 0, 0)
+	l.Title = "Select profiles (space to toggle, enter to confirm)"
+	l.SetShowStatusBar(false)
+	l.Styles.Title = titleStyle
+
+	res, err := tea.NewProgram(multiModel{list: l, selected: selected}, tea.WithOutput(os.Stderr)).Run()
+	if err != nil {
+		return nil, err
+	}
+	fm := res.(multiModel)
+	if fm.aborted {
+		return nil, ErrAborted
+	}
+	var out []string
+	for _, it := range items {
+		if fm.selected[it.Profile] {
+			out = append(out, it.Profile)
+		}
+	}
+	if len(out) == 0 {
+		return nil, ErrAborted
+	}
+	return out, nil
+}
+
 // RegionItem is one selectable AWS region row.
 type RegionItem struct{ Name string }
 
@@ -163,12 +263,22 @@ func (regionDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 // SelectRegion shows an arrow-key list of regions and returns the chosen
 // region. It returns ErrAborted if the user quits without selecting.
 func SelectRegion(regions []string) (string, error) {
+	return selectRegion("Select a region", regions)
+}
+
+// SelectRegionFor is SelectRegion with a title naming the profile the region is
+// being chosen for — used when picking a region per profile.
+func SelectRegionFor(profile string, regions []string) (string, error) {
+	return selectRegion("Region for "+profile, regions)
+}
+
+func selectRegion(title string, regions []string) (string, error) {
 	rows := make([]list.Item, len(regions))
 	for i, r := range regions {
 		rows[i] = RegionItem{Name: r}
 	}
 	l := list.New(rows, regionDelegate{}, 0, 0)
-	l.Title = "Select a region"
+	l.Title = title
 	l.SetShowStatusBar(false)
 	l.Styles.Title = titleStyle
 

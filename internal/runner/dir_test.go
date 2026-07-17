@@ -152,6 +152,25 @@ func TestParseFilter_Mixed(t *testing.T) {
 	}, got)
 }
 
+func TestParseFilter_CommaSeparated(t *testing.T) {
+	got, err := ParseFilter("coffee:us-east-1,wtf:us-west-2")
+	require.NoError(t, err)
+	require.Equal(t, []Target{
+		{Profile: "coffee", Region: "us-east-1"},
+		{Profile: "wtf", Region: "us-west-2"},
+	}, got)
+}
+
+func TestParseFilter_CommaAndSpaceMixed(t *testing.T) {
+	got, err := ParseFilter("dev, prod:eu-west-1 , qa")
+	require.NoError(t, err)
+	require.Equal(t, []Target{
+		{Profile: "dev", Region: "us-east-1"},
+		{Profile: "prod", Region: "eu-west-1"},
+		{Profile: "qa", Region: "us-east-1"},
+	}, got)
+}
+
 func TestParseFilter_Empty(t *testing.T) {
 	got, err := ParseFilter("")
 	require.NoError(t, err)

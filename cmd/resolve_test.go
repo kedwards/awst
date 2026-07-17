@@ -116,3 +116,45 @@ func TestEnsureRegion(t *testing.T) {
 		}
 	})
 }
+
+func TestResolveTargetsInteractive(t *testing.T) {
+	ctx := context.Background()
+	profiles := stubList("coffee", "wtf")
+	regionList := func() ([]string, error) { return []string{"us-east-1", "us-west-2"}, nil }
+
+	t.Run("region per profile", func(t *testing.T) {
+		pickProfiles := func([]tui.ProfileItem) ([]string, error) { return []string{"coffee", "wtf"}, nil }
+		pickRegion := func(profile string, _ []string) (string, error) {
+			if profile == "coffee" {
+				return "us-east-1", nil
+			}
+			return "us-west-2", nil
+		}
+		got, err := resolveTargetsInteractive(ctx, func() bool { return true }, profiles, pickProfiles, regionList, pickRegion)
+		if err != nil {
+			t.Fatalf("err %v", err)
+		}
+		if len(got) != 2 || got[0].Profile != "coffee" || got[0].Region != "us-east-1" ||
+			got[1].Profile != "wtf" || got[1].Region != "us-west-2" {
+			t.Fatalf("unexpected targets: %+v", got)
+		}
+	})
+
+	t.Run("not a terminal errors", func(t *testing.T) {
+		pickProfiles := func([]tui.ProfileItem) ([]string, error) { t.Fatal("picker should not fire"); return nil, nil }
+		pickRegion := func(string, []string) (string, error) { return "", nil }
+		_, err := resolveTargetsInteractive(ctx, func() bool { return false }, profiles, pickProfiles, regionList, pickRegion)
+		if err == nil {
+			t.Fatal("expected an error when stdin is not a terminal")
+		}
+	})
+
+	t.Run("abort propagates", func(t *testing.T) {
+		pickProfiles := func([]tui.ProfileItem) ([]string, error) { return nil, tui.ErrAborted }
+		pickRegion := func(string, []string) (string, error) { return "", nil }
+		_, err := resolveTargetsInteractive(ctx, func() bool { return true }, profiles, pickProfiles, regionList, pickRegion)
+		if !errors.Is(err, tui.ErrAborted) {
+			t.Fatalf("expected ErrAborted, got %v", err)
+		}
+	})
+}
