@@ -1,4 +1,4 @@
-//go:build !linux && !windows && !darwin
+//go:build !linux && !darwin
 
 package sessions
 
@@ -7,7 +7,7 @@ import (
 	"runtime"
 )
 
-// DefaultScan is unsupported on platforms other than linux/windows/darwin.
+// DefaultScan is unsupported on platforms other than linux/darwin.
 func DefaultScan() ([]Session, error) {
 	return nil, fmt.Errorf("listing local SSM sessions is not supported on %s", runtime.GOOS)
 }

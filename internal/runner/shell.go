@@ -1,28 +1,16 @@
 package runner
 
-import (
-	"errors"
-	"os/exec"
-	"runtime"
-)
+import "os/exec"
 
-// POSIXShell returns the sh/bash executable used to run snippets and inline
-// commands. The snippet library is POSIX shell on every platform (it uses
-// `\`-continuations, `$(...)`, pipes, jq), so it runs via `sh -c` — cmd.exe
-// and PowerShell can't execute it. On Windows we locate sh/bash on PATH
-// (Git Bash / WSL / MSYS) and return an actionable error if none is found.
+// POSIXShell returns the sh executable used to run snippets and inline
+// commands. The snippet library is POSIX shell (it uses `\`-continuations,
+// `$(...)`, pipes, jq), so awst runs it via `sh -c`.
 func POSIXShell() (string, error) {
-	return posixShell(runtime.GOOS, exec.LookPath)
+	return posixShell(exec.LookPath)
 }
-
-func posixShell(goos string, lookPath func(string) (string, error)) (string, error) {
-	if goos != "windows" {
-		return "sh", nil
+func posixShell(lookPath func(string) (string, error)) (string, error) {
+	if p, err := lookPath("sh"); err == nil {
+		return p, nil
 	}
-	for _, name := range []string{"sh", "bash"} {
-		if p, err := lookPath(name); err == nil {
-			return p, nil
-		}
-	}
-	return "", errors.New("awst run needs a POSIX shell (sh or bash) on PATH to run snippets — install Git Bash or WSL")
+	return "sh", nil
 }

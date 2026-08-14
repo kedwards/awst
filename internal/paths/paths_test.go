@@ -2,7 +2,6 @@ package paths
 
 import (
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -13,11 +12,6 @@ func TestCredsDir_DefaultsToXDG(t *testing.T) {
 	setTestHome(t, "/home/fake")
 
 	got := CredsDir()
-
-	if runtime.GOOS == "windows" {
-		require.Equal(t, filepath.Join("/home/fake", "AppData", "Roaming", "aws-tools", "creds"), got)
-		return
-	}
 	require.Equal(t, filepath.Join("/home/fake", ".local/share/aws-tools/creds"), got)
 }
 
@@ -44,14 +38,8 @@ func TestRunCommandsDir_DefaultsToConfigDir(t *testing.T) {
 	require.Equal(t, filepath.Join("/cfg", "aws-tools", "commands", "aws"), RunCommandsDir())
 }
 
-func TestDataDir_WindowsPrefersAppData(t *testing.T) {
+func TestDataDir_DefaultsToXDG(t *testing.T) {
 	setTestHome(t, "/home/fake")
-	t.Setenv("APPDATA", `C:\Users\fake\AppData\Roaming`)
-
-	if runtime.GOOS == "windows" {
-		require.Equal(t, `C:\Users\fake\AppData\Roaming`, DataDir())
-		return
-	}
 
 	require.Equal(t, filepath.Join(HomeDir(), ".local", "share"), DataDir())
 }

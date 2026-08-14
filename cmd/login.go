@@ -302,8 +302,6 @@ func openBrowser(url string) error {
 		c = exec.Command("xdg-open", url)
 	case "darwin":
 		c = exec.Command("open", url)
-	case "windows":
-		c = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
 	default:
 		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
 	}

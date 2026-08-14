@@ -37,8 +37,7 @@ func ParseShell(s string) (Shell, error) {
 
 // FormatExports returns shell statements that set the credential env vars
 // for the given shell. posix output is consumed via eval "$(...)";
-// powershell output via `... | iex`. cmd.exe has no clean eval equivalent
-// and isn't supported — use PowerShell.
+// powershell output via `... | iex`.
 func FormatExports(profile string, c Credentials, shell Shell) string {
 	vars := [][2]string{
 		{"AWS_ACCESS_KEY_ID", c.AccessKeyID},
