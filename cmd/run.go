@@ -170,8 +170,8 @@ Examples:
 				snippet = body
 			}
 
-			// Snippets and inline commands are POSIX shell; resolve sh/bash
-			// once up front (on Windows this finds Git Bash / WSL or errors).
+			// Snippets and inline commands are POSIX shell; resolve sh once
+			// up front so every child run uses the same interpreter.
 			shell := ""
 			if !isExecutable {
 				shell, err = d.shell()

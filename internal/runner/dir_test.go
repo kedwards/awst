@@ -3,7 +3,6 @@ package runner
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -68,12 +67,8 @@ func TestList_MergesAndSortsCommands(t *testing.T) {
 		byName[c.Name] = c
 	}
 	require.Equal(t, "OVERRIDDEN by user", byName["vpc-cidrs"].Desc, "user dir wins on collision")
-	// Executable bit is a unix concept; on windows Perm()&0o111 is always 0
-	// (windows executable detection is the P2 run-semantics gap).
-	if runtime.GOOS != "windows" {
-		require.True(t, byName["instances"].Executable)
-		require.False(t, byName["vpc-cidrs"].Executable)
-	}
+	require.True(t, byName["instances"].Executable)
+	require.False(t, byName["vpc-cidrs"].Executable)
 
 	require.Equal(t, "instances", got[0].Name, "sorted alphabetically")
 	require.Equal(t, "my-custom", got[1].Name)

@@ -36,6 +36,22 @@ func TestFormatExports_PowerShell(t *testing.T) {
 	require.NotContains(t, out, "export ")
 }
 
+func TestFormatExports_Fish(t *testing.T) {
+	out := FormatExports("dev", Credentials{
+		AccessKeyID:     "AKIA1",
+		SecretAccessKey: "secret",
+		SessionToken:    "token",
+		Region:          "us-east-1",
+	}, ShellFish)
+
+	require.Contains(t, out, `set -gx AWS_ACCESS_KEY_ID 'AKIA1'`+"\n")
+	require.Contains(t, out, `set -gx AWS_SECRET_ACCESS_KEY 'secret'`+"\n")
+	require.Contains(t, out, `set -gx AWS_SESSION_TOKEN 'token'`+"\n")
+	require.Contains(t, out, `set -gx AWS_REGION 'us-east-1'`+"\n")
+	require.Contains(t, out, `set -gx AWS_PROFILE 'dev'`+"\n")
+	require.NotContains(t, out, "export ")
+}
+
 func TestFormatExports_PowerShellEscapesSingleQuote(t *testing.T) {
 	out := FormatExports("dev", Credentials{
 		AccessKeyID:     "AK",
@@ -60,9 +76,9 @@ func TestFormatExports_PreservesEqualsInTokens(t *testing.T) {
 }
 
 func TestFormatExports_DropsAKSKSTShorthand(t *testing.T) {
-	for _, shell := range []Shell{ShellPosix, ShellPowerShell} {
+	for _, shell := range []Shell{ShellPosix, ShellFish, ShellPowerShell} {
 		out := FormatExports("dev", Credentials{AccessKeyID: "AKIA1", SecretAccessKey: "s", SessionToken: "t"}, shell)
-		require.NotRegexp(t, `(?m)(export |\$env:)(AK|SK|ST)\b`, out, "shorthand should be gone (%s)", shell)
+		require.NotRegexp(t, `(?m)(export |\$env:|set -gx )(AK|SK|ST)\b`, out, "shorthand should be gone (%s)", shell)
 	}
 }
 
@@ -99,8 +115,15 @@ func TestFormatUnset_PowerShell(t *testing.T) {
 	}
 }
 
+func TestFormatUnset_Fish(t *testing.T) {
+	out := FormatUnset(ShellFish)
+	for _, v := range awstEnvVars {
+		require.Contains(t, out, "set -e "+v+"\n")
+	}
+}
+
 func TestParseShell(t *testing.T) {
-	for _, in := range []string{"posix", "powershell"} {
+	for _, in := range []string{"posix", "fish", "powershell"} {
 		got, err := ParseShell(in)
 		require.NoError(t, err)
 		require.Equal(t, Shell(in), got)

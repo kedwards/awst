@@ -3,7 +3,6 @@ package paths
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 )
 
 func HomeDir() string {
@@ -30,12 +29,6 @@ func ConfigDir() string {
 }
 
 func DataDir() string {
-	if runtime.GOOS == "windows" {
-		if v := os.Getenv("APPDATA"); v != "" {
-			return v
-		}
-		return ConfigDir()
-	}
 	if v := os.Getenv("XDG_DATA_HOME"); v != "" {
 		return v
 	}

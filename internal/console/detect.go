@@ -39,12 +39,6 @@ func firefoxExtensionGlobs() []string {
 	switch runtime.GOOS {
 	case "darwin":
 		return []string{filepath.Join(paths.HomeDir(), "Library", "Application Support", "Firefox", "Profiles", "*", "extensions.json")}
-	case "windows":
-		base := os.Getenv("APPDATA")
-		if base == "" {
-			return nil
-		}
-		return []string{filepath.Join(base, "Mozilla", "Firefox", "Profiles", "*", "extensions.json")}
 	default:
 		return []string{filepath.Join(paths.HomeDir(), ".mozilla", "firefox", "*", "extensions.json")}
 	}

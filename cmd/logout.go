@@ -3,7 +3,9 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 
+	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
 
 	"github.com/kedwards/awst/v3/internal/creds"
@@ -14,12 +16,18 @@ import (
 type logoutDeps struct {
 	sessionLoader func(ctx context.Context, profile, configFile string) (sso.SSOSession, error)
 	cache         *sso.Cache
+	// stderrIsTerminal gates the shell-integration advice so it stays out of
+	// piped output and CI logs; getenv reads the wrapper's marker.
+	stderrIsTerminal func() bool
+	getenv           func(string) string
 }
 
 func defaultLogoutDeps() logoutDeps {
 	return logoutDeps{
-		sessionLoader: sso.LoadSSOSession,
-		cache:         sso.NewCache(paths.SSOCacheDir()),
+		sessionLoader:    sso.LoadSSOSession,
+		cache:            sso.NewCache(paths.SSOCacheDir()),
+		stderrIsTerminal: func() bool { return term.IsTerminal(os.Stderr.Fd()) },
+		getenv:           os.Getenv,
 	}
 }
 
@@ -90,13 +98,40 @@ Examples:
 				}
 				fmt.Fprint(cmd.OutOrStdout(), creds.FormatUnset(shell))
 				fmt.Fprintln(cmd.ErrOrStderr(), "Cleared AWS credential env vars from the current shell.")
+			} else {
+				// Without --export there is nothing for the shell to eval, so
+				// the env vars survive. Say so rather than exiting quietly.
+				d.reportNoExport(cmd)
 			}
 			return nil
 		},
 	}
 	c.Flags().StringVarP(&profileFlag, "profile", "p", "", "AWS profile (alternative to the positional [profile])")
 	c.Flags().BoolVarP(&export, "export", "e", false, "Print statements on stdout that unset the AWS credential env vars, for eval")
-	c.Flags().StringVar(&shellName, "shell", "posix", "Unset syntax with --export: posix or powershell")
+	c.Flags().StringVar(&shellName, "shell", "posix", "Unset syntax with --export: posix, fish, or powershell")
 	c.Flags().BoolVar(&clearCache, "clear-cache", false, "Also remove the cached SSO token(s), forcing a device-flow re-login")
 	return c
+}
+
+// reportNoExport explains why a logout without --export left the AWS
+// credential env vars in place: clearing them takes an eval in the caller's
+// shell, which only the `awst shell init` wrapper performs.
+func (d logoutDeps) reportNoExport(cmd *cobra.Command) {
+	w := cmd.ErrOrStderr()
+	fmt.Fprintln(w, "No credential env vars were cleared: without --export there is nothing for the shell to eval.")
+
+	si := detectShellIntegration(d.getenv)
+	if si.loaded {
+		if si.stale() {
+			fmt.Fprintf(w, "note: shell integration loaded from awst %s but this is awst %s; run `awst shell install --force` and restart your shell.\n",
+				si.version, version,
+			)
+		}
+		return
+	}
+	if !shellTTY(d.stderrIsTerminal) {
+		return
+	}
+	fmt.Fprintf(w, "\nThe awst shell integration is not loaded, so `awst logout` cannot clear them for you.\n")
+	shellSetupHint(w, logoutShellSetupHint(d.getenv))
 }

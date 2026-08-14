@@ -48,7 +48,7 @@ func defaultConsoleDeps() consoleDeps {
 		openBrowser:     openBrowser,
 		openFirefox:     launchFirefoxTab,
 		detectContainer: console.ContainerExtensionInstalled,
-		sessionLoader: sso.LoadSSOSession,
+		sessionLoader:   sso.LoadSSOSession,
 		oidcFactory: func(ctx context.Context, region string) (sso.OIDCClient, error) {
 			cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
 			if err != nil {
@@ -299,8 +299,6 @@ func firefoxPath() (string, error) {
 	switch runtime.GOOS {
 	case "darwin":
 		candidates = []string{"/Applications/Firefox.app/Contents/MacOS/firefox"}
-	case "windows":
-		candidates = []string{`C:\Program Files\Mozilla Firefox\firefox.exe`, `C:\Program Files (x86)\Mozilla Firefox\firefox.exe`}
 	default:
 		candidates = []string{"/usr/bin/firefox", "/snap/bin/firefox", "/usr/local/bin/firefox"}
 	}

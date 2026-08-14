@@ -39,8 +39,14 @@ out=$("$BIN" creds use dev --shell powershell)
 echo "$out" | grep -qx "\$env:AWS_ACCESS_KEY_ID = 'AKIA-FIXTURE'" || fail "powershell AKI line: $out"
 if echo "$out" | grep -q "export "; then fail "powershell output should not contain export: $out"; fi
 
-# 3c. unknown --shell is rejected
-if "$BIN" creds use dev --shell fish 2>/dev/null; then
+# 3c. --shell fish emits fish-compatible env mutations
+out=$("$BIN" creds use dev --shell fish)
+echo "$out" | grep -qx "set -gx AWS_ACCESS_KEY_ID 'AKIA-FIXTURE'" || fail "fish AKI line: $out"
+echo "$out" | grep -qx "set -gx AWS_SESSION_TOKEN 'fixture-token=='" || fail "fish token line: $out"
+echo "$out" | grep -qx "set -gx AWS_PROFILE 'dev'" || fail "fish profile line: $out"
+
+# 3d. unknown --shell is rejected
+if "$BIN" creds use dev --shell cmd 2>/dev/null; then
   fail "unknown --shell should fail"
 fi
 

@@ -2,7 +2,7 @@
 
 `awst` — a CLI for AWS shell + session work: SSO login, credential
 injection, SSM shell/port-forward sessions, and running commands across
-profiles. Cross-platform (Linux, macOS, Windows).
+profiles. Supported on Linux and macOS.
 
 > **This was a Bash toolkit through v2.5.2; it is now a single Go binary.**
 > The Bash version is deprecated and unmaintained — its final state is
@@ -27,7 +27,7 @@ sourcing, no `assume` shell-out.
 
 ## Install
 
-**Pre-built binary** (linux / darwin / windows × amd64 / arm64):
+**Pre-built binary** (linux / darwin × amd64 / arm64):
 
 ```sh
 # Pick the asset matching your OS/arch from the latest release
@@ -55,18 +55,18 @@ Requires Go 1.26+ to build from source.
 
 ### Platform support
 
-| Command | Linux | macOS | Windows | Notes |
-|---|:---:|:---:|:---:|---|
-| `shell init` | ✅ | ✅ | ✅ | POSIX (bash/zsh) by default; `--powershell` for PowerShell |
-| `creds` | ✅ | ✅ | ✅ | `--shell powershell` for PowerShell output (`\| iex`) |
-| `login` | ✅ | ✅ | ✅ | browser-open works on all three (`--no-browser` to skip) |
-| `console` | ✅ | ✅ | ✅ | federated console sign-in; standard `aws` partition; temp (SSO) creds |
-| `logout` | ✅ | ✅ | ✅ | clears cached SSO token(s) so the next login re-runs the device flow |
-| `connect` (shell + `--forward`) | ✅ | ✅ | ✅ | needs `session-manager-plugin` on `PATH` |
-| `exec` | ✅ | ✅ | ✅ | pure AWS API, no local shell |
-| `config` | ✅ | ✅ | ✅ | |
-| `run` | ✅ | ✅ | ⚠️ | snippets are POSIX shell — Windows needs `sh`/`bash` (Git Bash / WSL) on `PATH` |
-| `list` / `kill` | ✅ | ✅ | ✅ | Linux via `/proc`, macOS via `ps`, Windows via CIM |
+| Command | Linux | macOS | Notes |
+|---|:---:|:---:|---|
+| `shell init` | ✅ | ✅ | POSIX (bash/zsh) by default; `--powershell` for PowerShell |
+| `creds` | ✅ | ✅ | `--shell powershell` for PowerShell output (`\| iex`) |
+| `login` | ✅ | ✅ | browser-open works on both (`--no-browser` to skip) |
+| `console` | ✅ | ✅ | federated console sign-in; standard `aws` partition; temp (SSO) creds |
+| `logout` | ✅ | ✅ | clears cached SSO token(s) so the next login re-runs the device flow |
+| `connect` (shell + `--forward`) | ✅ | ✅ | needs `session-manager-plugin` on `PATH` |
+| `exec` | ✅ | ✅ | pure AWS API, no local shell |
+| `config` | ✅ | ✅ | |
+| `run` | ✅ | ✅ | snippets are POSIX shell |
+| `list` / `kill` | ✅ | ✅ | Linux via `/proc`, macOS via `ps` |
 
 ✅ supported · ⚠️ works with a prerequisite · ❌ not yet implemented
 
@@ -131,8 +131,6 @@ awst creds store dev --shell powershell | iex
 awst creds use dev   --shell powershell | iex
 ```
 
-`cmd.exe` has no clean `eval`/`iex` equivalent and isn't supported —
-use PowerShell on Windows.
 
 Stored credentials live in `$AWST_CREDS_DIR` (default
 `~/.local/share/aws-tools/creds`), one `<profile>.env` per profile,
@@ -368,11 +366,9 @@ awst kill --all                 # terminate every active SSM session
 ```
 
 Process discovery is per-OS: Linux reads `/proc`; macOS shells out to
-`ps -axww -o pid=,command=`; Windows queries `Win32_Process` via CIM
-(`Get-CimInstance`) and splits each command line with `CommandLineToArgvW`.
+`ps -axww -o pid=,command=`.
 
-Termination is per-OS too: unix does `SIGTERM`, waits 250ms, then
-escalates to `SIGKILL`; Windows uses the OS process kill.
+Termination uses `SIGTERM`, waits 250ms, then escalates to `SIGKILL`.
 
 ### `awst exec`
 
@@ -431,11 +427,6 @@ Executable files (`+x`) are exec'd directly:
 - **without a filter** → run once, no profile loop (the script handles
   its own iteration)
 
-**Windows:** snippets and inline (`-q`) commands are POSIX shell, so they
-run via `sh -c`. awst looks for `sh`/`bash` on `PATH` (Git Bash, WSL, or
-MSYS); if none is found it errors with that hint. cmd.exe/PowerShell can't
-run the snippet library (`\`-continuations, `$(...)`, `jq`), so they aren't
-used.
 
 ### `awst config`
 
@@ -503,11 +494,11 @@ Extract a shared package only when a second slice forces it.
 - [x] `awst creds {store,use,list,clear}`
 - [x] `awst login` — embedded SSO device flow (replaces `aws sso login`)
 - [x] `awst connect` — EC2 + SSM shell session + port-forwarding (ad-hoc + saved connections; codebuild still TODO)
-- [x] `awst list` / `kill` — local SSM session inspection (Linux /proc, macOS ps, Windows CIM)
+- [x] `awst list` / `kill` — local SSM session inspection (Linux /proc, macOS ps)
 - [x] `awst exec` — SendCommand across one/many instances
 - [x] `awst run` — execute snippets across AWS profiles
 - [x] `awst config` — print resolved configuration
-- [x] CI workflow — GitHub Actions runs `task ci` + native windows tests on PRs to `main`
+- [x] CI workflow — GitHub Actions runs `task ci` on PRs to `main`
 - [x] Distribution: GoReleaser (linux/darwin × amd64/arm64; signing TODO)
 
 ## License

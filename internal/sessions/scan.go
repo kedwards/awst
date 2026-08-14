@@ -1,9 +1,5 @@
 // Package sessions inspects the local OS for active SSM
-// session-manager-plugin processes started by awst connect. Linux-only;
-// the macOS upgrade path is ps -E (BSD) or libproc — neither is needed
-// until someone tries to use awst list on darwin.
-//
-// ponytail: /proc-only. Add darwin support when the user runs on it.
+// session-manager-plugin processes started by awst connect.
 package sessions
 
 import (
@@ -34,17 +30,7 @@ func ParseArgs(argv []string) (Session, bool) {
 	if len(argv) < 7 {
 		return Session{}, false
 	}
-	// Basename, splitting on either separator: argv[0] may be a Windows path
-	// (backslashes) even when this parses on another OS in tests.
-	name := argv[0]
-	if i := strings.LastIndexAny(name, `/\`); i >= 0 {
-		name = name[i+1:]
-	}
-	// Tolerate the Windows ".exe" suffix: the plugin is session-manager-plugin
-	// on unix and session-manager-plugin.exe on Windows.
-	if i := len(name) - len(".exe"); i > 0 && strings.EqualFold(name[i:], ".exe") {
-		name = name[:i]
-	}
+	name := filepath.Base(argv[0])
 	if name != connect.PluginName {
 		return Session{}, false
 	}

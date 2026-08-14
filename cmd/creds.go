@@ -37,15 +37,17 @@ store/use print statements that set the credential env vars. Choose the
 syntax with --shell (default posix):
 
   posix:       eval "$(awst creds store dev)"
+  fish:        awst creds store dev --shell fish | source
   powershell:  awst creds store dev --shell powershell | iex
 
 Examples:
   eval "$(awst creds store dev)"
+  awst creds use dev --shell fish | source
   awst creds use dev --shell powershell | iex
   awst creds list
   awst creds clear dev`,
 	}
-	c.PersistentFlags().String("shell", "posix", "Output syntax: posix or powershell")
+	c.PersistentFlags().String("shell", "posix", "Output syntax: posix, fish, or powershell")
 	c.AddCommand(newCredsStoreCmd(d), newCredsUseCmd(d), newCredsListCmd(d), newCredsClearCmd(d))
 	return c
 }
