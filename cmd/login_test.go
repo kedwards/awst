@@ -105,6 +105,11 @@ func loginTestDeps(t *testing.T, configFile string, openBrowserCalled *bool) log
 			return sc.Region
 		},
 		isTerminal: func() bool { return true },
+		// Hermetic by default: no wrapper marker in the environment and stderr
+		// is not a terminal, so the shell-integration advice stays out of tests
+		// that aren't about it.
+		getenv:           func(string) string { return "" },
+		stderrIsTerminal: func() bool { return false },
 		providerFactory: func(_ context.Context, _, _ string) (creds.Provider, string, error) {
 			return stubProvider{creds: aws.Credentials{
 				AccessKeyID:     "AKIA-TEST",
@@ -212,7 +217,10 @@ func TestLogin_ValidCachedTokenSkipsSSO(t *testing.T) {
 	require.False(t, browserOpened, "browser must not open when token is valid")
 }
 
-func TestLogin_NoExport_SilentOnSuccess(t *testing.T) {
+// Without --export nothing can reach the caller's shell, but the run must
+// still say what it did: exiting 0 with no output at all is what made a
+// successful login look like a silent failure.
+func TestLogin_NoExport_ReportsOutcomeOnStderr(t *testing.T) {
 	cfg := writeAWSConfig(t, ssoSessionConfig)
 	d := loginTestDeps(t, cfg, nil)
 	require.NoError(t, d.cache.Save("my-sso", sso.Token{
@@ -222,9 +230,87 @@ func TestLogin_NoExport_SilentOnSuccess(t *testing.T) {
 
 	stdout, stderr, err := runLogin(t, d, "login", "dev")
 	require.NoError(t, err)
-	require.Empty(t, stdout, "no --export: nothing on stdout")
-	require.NotContains(t, stderr, "Logged in")
-	require.NotContains(t, stderr, "Already logged in")
+	require.Empty(t, stdout, "no --export: nothing on stdout to eval")
+	require.Contains(t, stderr, "Already logged in via sso_session \"my-sso\"")
+}
+
+func TestLogin_NoExport_FreshTokenReportsCachePath(t *testing.T) {
+	cfg := writeAWSConfig(t, ssoSessionConfig)
+	d := loginTestDeps(t, cfg, nil)
+
+	stdout, stderr, err := runLogin(t, d, "login", "dev", "--no-browser")
+	require.NoError(t, err)
+	require.Empty(t, stdout)
+	require.Contains(t, stderr, "Logged in via sso_session \"my-sso\"")
+	require.Contains(t, stderr, d.cache.Path("my-sso"))
+}
+
+// The case the whole change exists for: the wrapper isn't loaded, so the user
+// asked for credentials and got none. Say so and how to fix it.
+func TestLogin_NoExport_WarnsWhenWrapperMissing(t *testing.T) {
+	cfg := writeAWSConfig(t, ssoSessionConfig)
+	d := loginTestDeps(t, cfg, nil)
+	d.getenv = func(string) string { return "" } // no AWST_SHELL_INIT
+	d.stderrIsTerminal = func() bool { return true }
+
+	_, stderr, err := runLogin(t, d, "login", "dev", "--no-browser")
+	require.NoError(t, err)
+	require.Contains(t, stderr, "Credential env vars were NOT set in this shell")
+	require.Contains(t, stderr, `eval "$(awst login --export dev)"`)
+	require.Contains(t, stderr, "awst shell install")
+}
+
+// With the wrapper loaded, reaching this path is deliberate (`command awst
+// login`), so don't nag.
+func TestLogin_NoExport_QuietWhenWrapperLoaded(t *testing.T) {
+	cfg := writeAWSConfig(t, ssoSessionConfig)
+	d := loginTestDeps(t, cfg, nil)
+	d.getenv = func(k string) string {
+		if k == shellInitEnvVar {
+			return version
+		}
+		return ""
+	}
+	d.stderrIsTerminal = func() bool { return true }
+
+	_, stderr, err := runLogin(t, d, "login", "dev", "--no-browser")
+	require.NoError(t, err)
+	require.Contains(t, stderr, "Logged in via sso_session")
+	require.NotContains(t, stderr, "NOT set in this shell")
+	require.NotContains(t, stderr, "note: shell integration")
+}
+
+// A marker from a different build means the shell predates an upgrade.
+func TestLogin_NoExport_NotesStaleWrapper(t *testing.T) {
+	cfg := writeAWSConfig(t, ssoSessionConfig)
+	d := loginTestDeps(t, cfg, nil)
+	d.getenv = func(k string) string {
+		if k == shellInitEnvVar {
+			return "0.0.1-old"
+		}
+		return ""
+	}
+	d.stderrIsTerminal = func() bool { return true }
+
+	_, stderr, err := runLogin(t, d, "login", "dev", "--no-browser")
+	require.NoError(t, err)
+	require.Contains(t, stderr, "note: shell integration loaded from awst 0.0.1-old")
+	require.Contains(t, stderr, "awst shell install --force")
+	require.NotContains(t, stderr, "NOT set in this shell")
+}
+
+// CI and pipes get the outcome line but not the multi-line advice.
+func TestLogin_NoExport_NoAdviceWhenStderrNotATerminal(t *testing.T) {
+	cfg := writeAWSConfig(t, ssoSessionConfig)
+	d := loginTestDeps(t, cfg, nil)
+	d.getenv = func(string) string { return "" }
+	d.stderrIsTerminal = func() bool { return false }
+
+	_, stderr, err := runLogin(t, d, "login", "dev", "--no-browser")
+	require.NoError(t, err)
+	require.Contains(t, stderr, "Logged in via sso_session")
+	require.NotContains(t, stderr, "NOT set in this shell")
+	require.NotContains(t, stderr, "awst shell install")
 }
 
 func TestLogin_ExpiredCachedTokenRelogs(t *testing.T) {

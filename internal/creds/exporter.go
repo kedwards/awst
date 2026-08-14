@@ -17,6 +17,7 @@ type Shell string
 
 const (
 	ShellPosix      Shell = "posix"      // export X="Y"  — eval "$(awst creds use dev)"
+	ShellFish       Shell = "fish"       // set -gx X 'Y' — awst creds use dev --shell fish | source
 	ShellPowerShell Shell = "powershell" // $env:X = 'Y'  — awst creds use dev | iex
 )
 
@@ -25,10 +26,12 @@ func ParseShell(s string) (Shell, error) {
 	switch Shell(s) {
 	case ShellPosix:
 		return ShellPosix, nil
+	case ShellFish:
+		return ShellFish, nil
 	case ShellPowerShell:
 		return ShellPowerShell, nil
 	default:
-		return "", fmt.Errorf("unknown shell %q (want posix or powershell)", s)
+		return "", fmt.Errorf("unknown shell %q (want posix, fish, or powershell)", s)
 	}
 }
 
@@ -52,9 +55,12 @@ func FormatExports(profile string, c Credentials, shell Shell) string {
 
 	var b strings.Builder
 	for _, kv := range vars {
-		if shell == ShellPowerShell {
+		switch shell {
+		case ShellPowerShell:
 			fmt.Fprintf(&b, "$env:%s = %s\n", kv[0], psQuote(kv[1]))
-		} else {
+		case ShellFish:
+			fmt.Fprintf(&b, "set -gx %s %s\n", kv[0], fishQuote(kv[1]))
+		default:
 			fmt.Fprintf(&b, "export %s=%q\n", kv[0], kv[1])
 		}
 	}
@@ -79,6 +85,13 @@ func FormatUnset(shell Shell) string {
 		}
 		return b.String()
 	}
+	if shell == ShellFish {
+		var b strings.Builder
+		for _, v := range awstEnvVars {
+			fmt.Fprintf(&b, "set -e %s\n", v)
+		}
+		return b.String()
+	}
 	return "unset " + strings.Join(awstEnvVars, " ") + "\n"
 }
 
@@ -87,4 +100,10 @@ func FormatUnset(shell Shell) string {
 // is escaped by doubling it.
 func psQuote(v string) string {
 	return "'" + strings.ReplaceAll(v, "'", "''") + "'"
+}
+
+// fishQuote single-quotes a value for fish. Embedded single quotes are
+// backslash-escaped so the value is taken literally.
+func fishQuote(v string) string {
+	return "'" + strings.ReplaceAll(v, "'", "\\'") + "'"
 }

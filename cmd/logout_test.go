@@ -141,8 +141,47 @@ func TestLogout_ClearCache_ClearsEnvAndCache(t *testing.T) {
 }
 
 func TestLogout_NoExport_SilentStdout(t *testing.T) {
-	d := logoutDeps{cache: sso.NewCache(t.TempDir())}
+	d := logoutDeps{cache: sso.NewCache(t.TempDir()), getenv: func(string) string { return "" }}
 	stdout, _, err := runLogout(t, d, "logout")
 	require.NoError(t, err)
 	require.Empty(t, stdout, "no --export: nothing on stdout to eval")
+}
+
+// A bare `awst logout` clears nothing, so it has to say that rather than exit
+// quietly and look like it worked.
+func TestLogout_NoExport_ReportsNothingCleared(t *testing.T) {
+	d := logoutDeps{cache: sso.NewCache(t.TempDir()), getenv: func(string) string { return "" }}
+	_, stderr, err := runLogout(t, d, "logout")
+	require.NoError(t, err)
+	require.Contains(t, stderr, "No credential env vars were cleared")
+}
+
+func TestLogout_NoExport_WarnsWhenWrapperMissing(t *testing.T) {
+	d := logoutDeps{
+		cache:            sso.NewCache(t.TempDir()),
+		getenv:           func(string) string { return "" },
+		stderrIsTerminal: func() bool { return true },
+	}
+	_, stderr, err := runLogout(t, d, "logout")
+	require.NoError(t, err)
+	require.Contains(t, stderr, "shell integration is not loaded")
+	require.Contains(t, stderr, `eval "$(awst logout --export)"`)
+	require.Contains(t, stderr, "awst shell install")
+}
+
+func TestLogout_NoExport_QuietWhenWrapperLoaded(t *testing.T) {
+	d := logoutDeps{
+		cache: sso.NewCache(t.TempDir()),
+		getenv: func(k string) string {
+			if k == shellInitEnvVar {
+				return version
+			}
+			return ""
+		},
+		stderrIsTerminal: func() bool { return true },
+	}
+	_, stderr, err := runLogout(t, d, "logout")
+	require.NoError(t, err)
+	require.Contains(t, stderr, "No credential env vars were cleared")
+	require.NotContains(t, stderr, "shell integration is not loaded")
 }

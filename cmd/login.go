@@ -33,6 +33,11 @@ type loginDeps struct {
 	profileRegion   func(ctx context.Context, profile string) string
 	isTerminal      func() bool
 	providerFactory func(ctx context.Context, profile, region string) (creds.Provider, string, error)
+	// stderrIsTerminal gates the multi-line shell-integration advice so it
+	// stays out of piped output and CI logs. Kept separate from isTerminal,
+	// which asks about stdin for the pickers.
+	stderrIsTerminal func() bool
+	getenv           func(string) string
 }
 
 func defaultLoginDeps() loginDeps {
@@ -45,10 +50,10 @@ func defaultLoginDeps() loginDeps {
 			}
 			return ssooidc.NewFromConfig(cfg), nil
 		},
-		cache:           sso.NewCache(paths.SSOCacheDir()),
-		openBrowser:     openBrowser,
-		sleep:           time.Sleep,
-		now:             time.Now,
+		cache:         sso.NewCache(paths.SSOCacheDir()),
+		openBrowser:   openBrowser,
+		sleep:         time.Sleep,
+		now:           time.Now,
 		listProfiles:  defaultListProfiles,
 		selectProfile: tui.SelectProfile,
 		pickRegion: func() (string, error) {
@@ -58,9 +63,11 @@ func defaultLoginDeps() loginDeps {
 			}
 			return tui.SelectRegion(regs)
 		},
-		profileRegion:   lookupProfileRegion,
-		isTerminal:      func() bool { return term.IsTerminal(os.Stdin.Fd()) },
-		providerFactory: creds.NewSDKProvider,
+		profileRegion:    lookupProfileRegion,
+		isTerminal:       func() bool { return term.IsTerminal(os.Stdin.Fd()) },
+		providerFactory:  creds.NewSDKProvider,
+		stderrIsTerminal: func() bool { return term.IsTerminal(os.Stderr.Fd()) },
+		getenv:           os.Getenv,
 	}
 }
 
@@ -146,7 +153,12 @@ Examples:
 			}
 
 			if !export {
-				return nil // quiet success; the device prompt (if any) already printed
+				// Nothing reaches the caller's shell on this path. Report what
+				// did happen, and if the wrapper isn't loaded say why no
+				// credentials showed up; otherwise a successful login is
+				// indistinguishable from a silent failure.
+				d.reportNoExport(cmd, profile, sess, tok, cached)
+				return nil
 			}
 
 			if cached {
@@ -205,10 +217,45 @@ Examples:
 	}
 	c.Flags().BoolVarP(&noBrowser, "no-browser", "n", false, "Print the URL only; don't try to open a browser")
 	c.Flags().BoolVarP(&export, "export", "e", false, "After login, print credential export statements on stdout for eval")
-	c.Flags().StringVar(&shellName, "shell", "posix", "Export syntax with --export: posix or powershell")
+	c.Flags().StringVar(&shellName, "shell", "posix", "Export syntax with --export: posix, fish, or powershell")
 	c.Flags().StringVarP(&region, "region", "r", "", "AWS region for exported credentials (default: profile region, else us-east-1)")
 	c.Flags().StringVarP(&profileFlag, "profile", "p", "", "AWS profile (alternative to the positional [profile])")
 	return c
+}
+
+// reportNoExport describes the outcome of a login run without --export, where
+// the SSO token is cached but no credential env vars reach the caller's shell.
+// When the `awst shell init` wrapper is missing it also explains how to get it,
+// because that is the case where the user asked for credentials and got none.
+func (d loginDeps) reportNoExport(cmd *cobra.Command, profile string, sess sso.SSOSession, tok sso.Token, cached bool) {
+	w := cmd.ErrOrStderr()
+	if cached {
+		fmt.Fprintf(w, "Already logged in via sso_session %q (token valid until %s).\n",
+			sess.Name, tok.ExpiresAt.Local().Format(time.RFC3339),
+		)
+	} else {
+		fmt.Fprintf(w, "Logged in via sso_session %q. Token cached at %s\n",
+			sess.Name, d.cache.Path(sess.Name),
+		)
+	}
+
+	si := detectShellIntegration(d.getenv)
+	if si.loaded {
+		// The wrapper is loaded, so reaching here means `command awst login`
+		// or an explicit --export-less call. Nothing to warn about beyond a
+		// version mismatch, which means the shell predates an upgrade.
+		if si.stale() {
+			fmt.Fprintf(w, "note: shell integration loaded from awst %s but this is awst %s; run `awst shell install --force` and restart your shell.\n",
+				si.version, version,
+			)
+		}
+		return
+	}
+	if !shellTTY(d.stderrIsTerminal) {
+		return
+	}
+	fmt.Fprintf(w, "\nCredential env vars were NOT set in this shell: the awst shell integration is not loaded.\n")
+	shellSetupHint(w, loginShellSetupHint(d.getenv, profile))
 }
 
 // pickProfile presents an interactive picker of the SSO-capable profiles in
