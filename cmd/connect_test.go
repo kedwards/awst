@@ -216,6 +216,7 @@ func TestConnect_AmbiguousMatch_Terminal_PicksAndConnects(t *testing.T) {
 	}
 
 	// profile+region given so only the instance picker is exercised here.
+	setTestProfiles(t, "p")
 	_, _, err := runConnect(t, d, "connect", "web", "--profile", "p", "--region", "us-east-1")
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"i-aaa", "i-bbb"}, offered, "picker should be offered both matches")
@@ -231,6 +232,7 @@ func TestConnect_AmbiguousMatch_Terminal_AbortIsCleanNoOp(t *testing.T) {
 	d.selectInstance = func([]tui.InstanceItem) (string, error) { return "", tui.ErrAborted }
 
 	// profile+region given so only the instance picker is exercised here.
+	setTestProfiles(t, "p")
 	_, _, err := runConnect(t, d, "connect", "web", "--profile", "p", "--region", "us-east-1")
 	require.NoError(t, err, "aborting the picker is a clean no-op")
 	require.Nil(t, ssmStub.startCall, "no session started when the picker is aborted")
@@ -280,6 +282,7 @@ func (e *errSSM) StartSession(context.Context, *ssm.StartSessionInput, ...func(*
 }
 
 func TestConnect_AuthFailure_HintsAtLogin(t *testing.T) {
+	setTestProfiles(t, "dev")
 	ssmStub := &errSSM{err: errors.New("operation error SSM: DescribeInstanceInformation, no valid SSO token found in cache")}
 	d := connectDeps{
 		clients: func(_ context.Context, profile, region string) (*ssmClients, error) {
@@ -425,6 +428,7 @@ func TestConnect_CodeBuild_MultiBuild_Terminal_PicksAndConnects(t *testing.T) {
 	d.selectBuild = func(items []tui.BuildItem) (string, error) { return "p:2", nil }
 
 	// profile+region given so only the build picker is exercised here.
+	setTestProfiles(t, "x")
 	_, _, err := runConnect(t, d, "connect", "--project-name", "p", "--profile", "x", "--region", "us-east-1")
 	require.NoError(t, err)
 	require.Equal(t, "target-2", aws.ToString(ssmStub.startCall.Target), "connects to the chosen build's target")

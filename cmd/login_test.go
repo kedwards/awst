@@ -457,6 +457,132 @@ func TestLogin_ProfileFlagAndPositionalConflict(t *testing.T) {
 	require.Contains(t, err.Error(), "not both")
 }
 
+// shortProfileConfig has two SSO-capable profiles sharing a "dev" substring
+// (rch-platform-dev-coffee, rch-platform-dev-tea) plus a "coffee" substring
+// unique to one of them, for exercising --profile shorthand matching.
+const shortProfileConfig = `
+[profile rch-platform-dev-coffee]
+sso_session = my-sso
+sso_account_id = 111111111111
+sso_role_name = Developer
+region = us-east-1
+
+[profile rch-platform-dev-tea]
+sso_session = my-sso
+sso_account_id = 222222222222
+sso_role_name = Developer
+region = us-east-1
+
+[sso-session my-sso]
+sso_start_url = https://my-org.awsapps.com/start
+sso_region = us-east-1
+sso_registration_scopes = sso:account:access
+`
+
+func TestLogin_ProfileShorthand_UniqueSubstringAutoSelects(t *testing.T) {
+	cfg := writeAWSConfig(t, shortProfileConfig)
+	d := loginTestDeps(t, cfg, nil)
+	// selectProfile stays as the t.Fatal stub — a unique match must not
+	// invoke the ambiguous-match picker.
+
+	_, stderr, err := runLogin(t, d, "login", "coffee", "--export", "--no-browser")
+	require.NoError(t, err)
+	require.Contains(t, stderr, `Profile "coffee" matched "rch-platform-dev-coffee"`)
+	require.Contains(t, stderr, "Logged in via sso_session")
+}
+
+func TestLogin_ProfileShorthand_FlagFormAlsoMatches(t *testing.T) {
+	cfg := writeAWSConfig(t, shortProfileConfig)
+	d := loginTestDeps(t, cfg, nil)
+
+	stdout, _, err := runLogin(t, d, "login", "--profile", "coffee", "--export", "--no-browser")
+	require.NoError(t, err)
+	require.Contains(t, stdout, `export AWS_PROFILE="rch-platform-dev-coffee"`)
+}
+
+// exactMatchPrecedenceConfig has a profile named literally "coffee" alongside
+// one that merely contains it as a substring ("rch-platform-dev-coffee"), so
+// the input "coffee" is both an exact match and (if exact-match precedence
+// were missing) a substring match against two profiles.
+const exactMatchPrecedenceConfig = `
+[profile coffee]
+sso_session = my-sso
+sso_account_id = 111111111111
+sso_role_name = Developer
+region = us-east-1
+
+[profile rch-platform-dev-coffee]
+sso_session = my-sso
+sso_account_id = 222222222222
+sso_role_name = Developer
+region = us-east-1
+
+[sso-session my-sso]
+sso_start_url = https://my-org.awsapps.com/start
+sso_region = us-east-1
+sso_registration_scopes = sso:account:access
+`
+
+func TestLogin_ProfileShorthand_ExactMatchSkipsSubstringLogic(t *testing.T) {
+	cfg := writeAWSConfig(t, exactMatchPrecedenceConfig)
+	d := loginTestDeps(t, cfg, nil)
+	// selectProfile stays as the t.Fatal stub — an exact hit must
+	// short-circuit before the substring scan even runs, let alone find this
+	// ambiguous (would otherwise be two-way) and reach for the picker.
+
+	stdout, _, err := runLogin(t, d, "login", "coffee", "--export", "--no-browser")
+	require.NoError(t, err)
+	require.Contains(t, stdout, `export AWS_PROFILE="coffee"`)
+}
+
+func TestLogin_ProfileShorthand_AmbiguousSubstringShowsPicker(t *testing.T) {
+	cfg := writeAWSConfig(t, shortProfileConfig)
+	d := loginTestDeps(t, cfg, nil)
+	var offered []string
+	d.selectProfile = func(items []tui.ProfileItem) (string, error) {
+		for _, it := range items {
+			offered = append(offered, it.Profile)
+		}
+		return "rch-platform-dev-tea", nil
+	}
+
+	stdout, _, err := runLogin(t, d, "login", "dev", "--export", "--no-browser")
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"rch-platform-dev-coffee", "rch-platform-dev-tea"}, offered)
+	require.Contains(t, stdout, `export AWS_PROFILE="rch-platform-dev-tea"`)
+}
+
+func TestLogin_ProfileShorthand_AmbiguousAbortedPickerIsCleanNoOp(t *testing.T) {
+	cfg := writeAWSConfig(t, shortProfileConfig)
+	d := loginTestDeps(t, cfg, nil)
+	d.selectProfile = func([]tui.ProfileItem) (string, error) { return "", tui.ErrAborted }
+
+	stdout, _, err := runLogin(t, d, "login", "dev", "--export", "--no-browser")
+	require.NoError(t, err, "aborting the ambiguous-match picker is a clean no-op")
+	require.Empty(t, stdout, "no exports emitted when the picker is aborted")
+}
+
+func TestLogin_ProfileShorthand_AmbiguousNonTerminalErrors(t *testing.T) {
+	cfg := writeAWSConfig(t, shortProfileConfig)
+	d := loginTestDeps(t, cfg, nil)
+	d.isTerminal = func() bool { return false }
+
+	_, _, err := runLogin(t, d, "login", "dev")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "matched multiple profiles")
+	require.Contains(t, err.Error(), "rch-platform-dev-coffee")
+	require.Contains(t, err.Error(), "rch-platform-dev-tea")
+}
+
+func TestLogin_ProfileShorthand_NoMatchPassesValueThrough(t *testing.T) {
+	cfg := writeAWSConfig(t, shortProfileConfig)
+	d := loginTestDeps(t, cfg, nil)
+	// selectProfile stays as the t.Fatal stub — a no-match must not invoke it.
+
+	_, _, err := runLogin(t, d, "login", "ghost")
+	require.Error(t, err, "no profile named literally \"ghost\" exists, so the SDK lookup fails")
+}
+
 func TestLogin_HelpFlag(t *testing.T) {
 	d := loginTestDeps(t, "", nil)
 	out, _, err := runLogin(t, d, "login", "-h")

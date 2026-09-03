@@ -100,6 +100,29 @@ All other subcommands (`creds`, `connect`, `exec`, `run`, `list`, `kill`,
 `config`, `sso`) pass straight through the wrapper unchanged. Without the
 wrapper installed, the raw equivalent is `eval "$(awst login --export <profile>)"`.
 
+### Profile matching
+
+`--profile` / `-p` (and the positional `[profile]` on `login`/`logout`) does
+case-insensitive substring matching against profiles in `~/.aws/config`.
+Every command that takes a profile — `login`, `logout`, `console`,
+`connect`, `exec` — resolves it the same way:
+
+| Input | Result |
+|---|---|
+| Exact match (`rch-platform-dev-ninja`) | used as-is |
+| Single substring match (`ninja`) | auto-selected, note on stderr |
+| Multiple matches (`dev`) | interactive picker (or error in a pipe/CI) |
+| No matches (`ghost`) | passed through unchanged (SDK error) |
+
+```sh
+awst login -p ninja                  # matches rch-platform-dev-ninja (if unique)
+awst exec -p coffee -c uptime -i web # matches rch-platform-dev-coffee
+awst connect -p prod web             # if multiple "prod" profiles, picker shown
+```
+
+In a pipe/CI, multiple matches produce a hard error listing the candidates —
+pass the full profile name to disambiguate.
+
 ### `awst creds`
 
 Manage AWS credentials per profile. The store / use commands print
@@ -381,11 +404,61 @@ order; exit is non-zero if any target failed.
 awst exec -c 'uptime' -i web-1
 awst exec -c 'df -h' -i web,db,i-0123abc
 awst exec -c 'systemctl restart nginx' -i web -p prod -r us-east-2
+awst exec barx-rate-check                  # saved command (header sets profile/region/instances)
+awst exec -f ./check.sh -i web-1           # ad-hoc file
+awst exec                                  # pick a saved command interactively
 ```
 
-`-i` is a comma-separated mix of Name-tag substring patterns and
-`i-…` IDs. Each piece is expanded against the live SSM inventory; a
-no-match for any piece is a hard error (no silent partial runs).
+#### Command source precedence
+
+The command body comes from exactly one of (first match wins):
+
+1. `--command/-c` — inline string
+2. `--file/-f` — path to a script file
+3. positional `name` — resolved from the commands directory
+
+Passing more than one is an error. With none of the three, a terminal
+shows a picker of saved command names; a pipe/CI prints the list and
+exits non-zero.
+
+#### Saved command files
+
+A saved command is a plain script file. Optional leading `# key: value`
+header comments set defaults — everything else is sent verbatim:
+
+```
+# description: BARX vendor connectivity check
+# profile: rch-platform-dev-coffee
+# region: us-east-1
+# instances: i-0823f48e03ca63c37
+cat > /tmp/barx_req.xml <<EOF
+...
+EOF
+curl -sS --cert ...
+rm -f /tmp/barx_req.xml
+```
+
+Recognized header keys: `description`, `profile`, `region`, `instances`.
+A `#!` shebang on line 1 is preserved. Unrecognized comments and blank
+lines in the body are kept byte-for-byte (unlike `awst run` snippets,
+which strip comments and blanks — unsafe for heredocs).
+
+Saved commands live under `~/.config/aws-tools/commands/ssm` (layered
+with `awst run`'s directory discovery). Override with `AWST_EXEC_CMD_DIR`
+or `-d`.
+
+#### Flag / header / env precedence
+
+Explicit flags always win over header values, which win over the
+existing resolution chain (`AWS_PROFILE`/`AWS_REGION` env vars, SDK
+config, interactive picker).
+
+`-i` is optional: when still empty after flags + header, `awst exec`
+prompts interactively with a picker. In a pipe / CI, omitting `-i` is a
+hard error. `-i` accepts a comma-separated mix of Name-tag substring
+patterns and `i-…` IDs; each piece is expanded against the live SSM
+inventory; a no-match for any piece is a hard error (no silent partial
+runs).
 
 Output: stdout/stderr come from `GetCommandInvocation`, which caps at
 24 KB stdout / 8 KB stderr per instance. Larger output would need S3
@@ -468,8 +541,8 @@ internal/connect/   describe (EC2/SSM cross-join + Name resolution),
                     session (StartSession + plugin exec)
 internal/sessions/  per-OS scan for active session-manager-plugin
                     processes (powers `awst list` / `awst kill`)
-internal/ssmexec/   SendCommand + poll loop + pattern expansion
-                    (powers `awst exec`)
+internal/ssmexec/   SendCommand + poll loop + pattern expansion +
+                    saved command file loader (powers `awst exec`)
 internal/runner/    dir layering, snippet load, placeholder substitution,
                     filter parsing (powers `awst run`)
 test/acceptance/    no-AWS smoke that pins the eval-able output contract

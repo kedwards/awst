@@ -263,18 +263,22 @@ func (regionDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 // SelectRegion shows an arrow-key list of regions and returns the chosen
 // region. It returns ErrAborted if the user quits without selecting.
 func SelectRegion(regions []string) (string, error) {
-	return selectRegion("Select a region", regions)
+	return SelectFrom("Select a region", regions)
 }
 
 // SelectRegionFor is SelectRegion with a title naming the profile the region is
 // being chosen for — used when picking a region per profile.
 func SelectRegionFor(profile string, regions []string) (string, error) {
-	return selectRegion("Region for "+profile, regions)
+	return SelectFrom("Region for "+profile, regions)
 }
 
-func selectRegion(title string, regions []string) (string, error) {
-	rows := make([]list.Item, len(regions))
-	for i, r := range regions {
+// SelectFrom shows an arrow-key list of plain string options under title and
+// returns the chosen one. It returns ErrAborted if the user quits without
+// selecting. Shared by SelectRegion/SelectRegionFor and any other picker
+// that just needs to choose one name from a list (e.g. saved exec commands).
+func SelectFrom(title string, options []string) (string, error) {
+	rows := make([]list.Item, len(options))
+	for i, r := range options {
 		rows[i] = RegionItem{Name: r}
 	}
 	l := list.New(rows, regionDelegate{}, 0, 0)

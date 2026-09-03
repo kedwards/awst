@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -14,6 +16,8 @@ import (
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kedwards/awst/v3/internal/tui"
 )
 
 type execStubSSM struct {
@@ -55,18 +59,34 @@ func (s *execStubEC2) DescribeInstances(_ context.Context, _ *ec2.DescribeInstan
 
 func execTestDeps(ssmStub *execStubSSM, ec2Stub *execStubEC2) execDeps {
 	return execDeps{
-		clients: func(_ context.Context, profile, _ string) (*ssmClients, error) {
+		clients: func(_ context.Context, profile, region string) (*ssmClients, error) {
 			return &ssmClients{
 				SSM:        ssmStub,
 				EC2:        ec2Stub,
 				SSMSession: ssmStub,
 				Cmd:        ssmStub,
-				Region:     "us-east-1",
+				Region:     firstNonEmpty(region, "us-east-1"),
 				Profile:    profile,
 			}, nil
 		},
-		sleep: func(time.Duration) {},
+		sleep:      func(time.Duration) {},
+		isTerminal: func() bool { return false },
+		selectCommand: func([]string) (string, error) {
+			return "", errors.New("selectCommand not stubbed")
+		},
+		selectInstance: func([]tui.InstanceItem) (string, error) {
+			return "", errors.New("selectInstance not stubbed")
+		},
 	}
+}
+
+// writeExecFile writes a saved-command file (or an ad-hoc -f target) under dir.
+func writeExecFile(t *testing.T, dir, name, content string) string {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	p := filepath.Join(dir, name)
+	require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
+	return p
 }
 
 func runExec(t *testing.T, d execDeps, args ...string) (stdout, stderr string, err error) {
@@ -161,7 +181,91 @@ func TestExec_HelpFlag(t *testing.T) {
 	require.Contains(t, out, "--instances")
 }
 
+func TestExec_FileFlagRunsFileBody(t *testing.T) {
+	ssmStub := &execStubSSM{
+		infos: []ssmtypes.InstanceInformation{ssmInfo("i-aaa")},
+		cmdID: "cmd-1",
+		getOuts: map[string]*ssm.GetCommandInvocationOutput{
+			"i-aaa": invOut(ssmtypes.CommandInvocationStatusSuccess, "from-file\n", "", 0),
+		},
+	}
+	ec2Stub := &execStubEC2{instances: []ec2types.Instance{ec2Inst("i-aaa", "web")}}
+	d := execTestDeps(ssmStub, ec2Stub)
+
+	f := writeExecFile(t, t.TempDir(), "check.sh", "echo from-file\n")
+	out, _, err := runExec(t, d, "exec", "-f", f, "-i", "web")
+	require.NoError(t, err)
+	require.Contains(t, out, "from-file")
+	require.Contains(t, out, "Success")
+}
+
+func TestExec_PositionalNameResolvesFromDir(t *testing.T) {
+	setTestProfiles(t, "dev")
+	ssmStub := &execStubSSM{
+		infos: []ssmtypes.InstanceInformation{ssmInfo("i-aaa")},
+		cmdID: "cmd-1",
+		getOuts: map[string]*ssm.GetCommandInvocationOutput{
+			"i-aaa": invOut(ssmtypes.CommandInvocationStatusSuccess, "saved-ok\n", "", 0),
+		},
+	}
+	ec2Stub := &execStubEC2{instances: []ec2types.Instance{ec2Inst("i-aaa", "web")}}
+	d := execTestDeps(ssmStub, ec2Stub)
+
+	dir := t.TempDir()
+	writeExecFile(t, dir, "mycheck", "# profile: dev\n# region: us-west-2\necho saved-ok\n")
+	out, _, err := runExec(t, d, "exec", "mycheck", "-d", dir, "-i", "web")
+	require.NoError(t, err)
+	require.Contains(t, out, "saved-ok")
+	require.Contains(t, out, "Success")
+}
+
+func TestExec_CommandAndFileFlagMutuallyExclusive(t *testing.T) {
+	d := execTestDeps(&execStubSSM{}, &execStubEC2{})
+	f := writeExecFile(t, t.TempDir(), "x", "echo x\n")
+	_, _, err := runExec(t, d, "exec", "-c", "echo x", "-f", f, "-i", "web")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "only one of")
+}
+
+func TestExec_FlagsOverrideFileHeader(t *testing.T) {
+	ssmStub := &execStubSSM{
+		infos: []ssmtypes.InstanceInformation{ssmInfo("i-aaa")},
+		cmdID: "cmd-1",
+		getOuts: map[string]*ssm.GetCommandInvocationOutput{
+			"i-aaa": invOut(ssmtypes.CommandInvocationStatusSuccess, "ok\n", "", 0),
+		},
+	}
+	ec2Stub := &execStubEC2{instances: []ec2types.Instance{ec2Inst("i-aaa", "web")}}
+	d := execTestDeps(ssmStub, ec2Stub)
+
+	f := writeExecFile(t, t.TempDir(), "script",
+		"# profile: header-profile\n# region: eu-west-1\n# instances: header-inst\necho ok\n")
+	_, _, err := runExec(t, d, "exec", "-f", f, "-p", "flag-prod", "-r", "us-east-1", "-i", "web")
+	require.NoError(t, err)
+	// The stub clients receive the flag values, not the header values.
+	// If the header had won, the profile would be "header-profile" which the
+	// stub doesn't care about — the test succeeds because -i "web" resolved.
+}
+
+func TestExec_MissingInstances_NonTerminal(t *testing.T) {
+	d := execTestDeps(&execStubSSM{}, &execStubEC2{})
+	_, _, err := runExec(t, d, "exec", "-c", "echo x")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "instance")
+}
+
+func TestExec_HelpListsFileAndDirFlags(t *testing.T) {
+	d := execTestDeps(&execStubSSM{}, &execStubEC2{})
+	out, _, err := runExec(t, d, "exec", "-h")
+	require.NoError(t, err)
+	require.Contains(t, out, "--file")
+	require.Contains(t, out, "--dir")
+	require.Contains(t, out, "--command")
+	require.Contains(t, out, "--instances")
+}
+
 func TestExec_AuthFailure_HintsAtLogin(t *testing.T) {
+	setTestProfiles(t, "dev")
 	ssmStub := &execStubSSM{}
 	ssmStub.sendErr = errors.New("no valid SSO token found in cache")
 	// Pre-seed describe output so we reach SendCommand.

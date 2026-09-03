@@ -121,7 +121,7 @@ Examples:
 
 			// Resolve profile/region, prompting with a picker when missing and
 			// interactive (skips the region prompt when already resolvable).
-			profile, region, err = resolveProfileRegion(ctx, profile, region, isStdinTerminal)
+			profile, region, err = resolveProfileRegion(ctx, cmd.ErrOrStderr(), profile, region, isStdinTerminal)
 			if err != nil {
 				if errors.Is(err, tui.ErrAborted) {
 					return nil

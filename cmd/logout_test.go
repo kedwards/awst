@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kedwards/awst/v3/internal/sso"
+	"github.com/kedwards/awst/v3/internal/tui"
 )
 
 func runLogout(t *testing.T, d logoutDeps, args ...string) (stdout, stderr string, err error) {
@@ -61,6 +62,98 @@ func TestLogout_ProfileFlag_ClearsThatSession(t *testing.T) {
 	require.Contains(t, stderr, "my-sso")
 	_, statErr := os.Stat(cache.Path("my-sso"))
 	require.True(t, os.IsNotExist(statErr), "flag form should clear the session just like positional")
+}
+
+func TestLogout_ProfileShorthand_UniqueSubstringAutoSelects(t *testing.T) {
+	cfg := writeAWSConfig(t, shortProfileConfig) // rch-platform-dev-{coffee,tea}, sso_session my-sso
+	cache := sso.NewCache(t.TempDir())
+	require.NoError(t, cache.Save("my-sso", sso.Token{AccessToken: "a", ExpiresAt: time.Now().Add(time.Hour)}))
+
+	d := logoutDeps{
+		sessionLoader: func(ctx context.Context, profile, _ string) (sso.SSOSession, error) {
+			return sso.LoadSSOSession(ctx, profile, cfg)
+		},
+		cache:        cache,
+		isTerminal:   func() bool { return true },
+		listProfiles: func() ([]string, error) { return readProfileNamesFromFile(t, cfg), nil },
+		selectProfile: func([]tui.ProfileItem) (string, error) {
+			t.Fatal("selectProfile should not be called for a unique substring match")
+			return "", nil
+		},
+	}
+
+	_, stderr, err := runLogout(t, d, "logout", "--clear-cache", "coffee")
+	require.NoError(t, err)
+	require.Contains(t, stderr, `Profile "coffee" matched "rch-platform-dev-coffee"`)
+	require.Contains(t, stderr, "my-sso")
+	_, statErr := os.Stat(cache.Path("my-sso"))
+	require.True(t, os.IsNotExist(statErr), "token file should be gone")
+}
+
+func TestLogout_ProfileShorthand_AmbiguousSubstringShowsPicker(t *testing.T) {
+	cfg := writeAWSConfig(t, shortProfileConfig)
+	cache := sso.NewCache(t.TempDir())
+	require.NoError(t, cache.Save("my-sso", sso.Token{AccessToken: "a", ExpiresAt: time.Now().Add(time.Hour)}))
+
+	var offered []string
+	d := logoutDeps{
+		sessionLoader: func(ctx context.Context, profile, _ string) (sso.SSOSession, error) {
+			return sso.LoadSSOSession(ctx, profile, cfg)
+		},
+		cache:        cache,
+		isTerminal:   func() bool { return true },
+		listProfiles: func() ([]string, error) { return readProfileNamesFromFile(t, cfg), nil },
+		selectProfile: func(items []tui.ProfileItem) (string, error) {
+			for _, it := range items {
+				offered = append(offered, it.Profile)
+			}
+			return "rch-platform-dev-tea", nil
+		},
+	}
+
+	_, stderr, err := runLogout(t, d, "logout", "--clear-cache", "dev")
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"rch-platform-dev-coffee", "rch-platform-dev-tea"}, offered)
+	require.Contains(t, stderr, "my-sso")
+	_, statErr := os.Stat(cache.Path("my-sso"))
+	require.True(t, os.IsNotExist(statErr), "token file should be gone")
+}
+
+func TestLogout_ProfileShorthand_AmbiguousNonTerminalErrors(t *testing.T) {
+	cfg := writeAWSConfig(t, shortProfileConfig)
+	d := logoutDeps{
+		cache:        sso.NewCache(t.TempDir()),
+		isTerminal:   func() bool { return false },
+		listProfiles: func() ([]string, error) { return readProfileNamesFromFile(t, cfg), nil },
+		selectProfile: func([]tui.ProfileItem) (string, error) {
+			t.Fatal("picker should not fire when stdin is not a terminal")
+			return "", nil
+		},
+	}
+
+	_, _, err := runLogout(t, d, "logout", "--clear-cache", "dev")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "matched multiple profiles")
+}
+
+// Without a listProfiles dependency wired up (the zero-value logoutDeps used
+// throughout the rest of this file), the profile is used exactly as given —
+// matching is skipped rather than panicking on a nil dependency.
+func TestLogout_ProfileShorthand_NilListProfilesSkipsMatching(t *testing.T) {
+	cfg := writeAWSConfig(t, ssoSessionConfig) // profile "dev" -> sso_session "my-sso"
+	cache := sso.NewCache(t.TempDir())
+	require.NoError(t, cache.Save("my-sso", sso.Token{AccessToken: "a", ExpiresAt: time.Now().Add(time.Hour)}))
+
+	d := logoutDeps{
+		sessionLoader: func(ctx context.Context, profile, _ string) (sso.SSOSession, error) {
+			return sso.LoadSSOSession(ctx, profile, cfg)
+		},
+		cache: cache,
+	}
+
+	_, stderr, err := runLogout(t, d, "logout", "--clear-cache", "dev")
+	require.NoError(t, err)
+	require.Contains(t, stderr, "my-sso")
 }
 
 func TestLogout_ProfileFlagAndPositionalConflict(t *testing.T) {

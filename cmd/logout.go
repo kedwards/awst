@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -11,11 +12,18 @@ import (
 	"github.com/kedwards/awst/v3/internal/creds"
 	"github.com/kedwards/awst/v3/internal/paths"
 	"github.com/kedwards/awst/v3/internal/sso"
+	"github.com/kedwards/awst/v3/internal/tui"
 )
 
 type logoutDeps struct {
 	sessionLoader func(ctx context.Context, profile, configFile string) (sso.SSOSession, error)
 	cache         *sso.Cache
+	// isTerminal, listProfiles, and selectProfile support the same
+	// short-profile-name substring matching as `awst login`, used only when
+	// --clear-cache is given a [profile] to resolve.
+	isTerminal    func() bool
+	listProfiles  func() ([]string, error)
+	selectProfile func(items []tui.ProfileItem) (string, error)
 	// stderrIsTerminal gates the shell-integration advice so it stays out of
 	// piped output and CI logs; getenv reads the wrapper's marker.
 	stderrIsTerminal func() bool
@@ -26,6 +34,9 @@ func defaultLogoutDeps() logoutDeps {
 	return logoutDeps{
 		sessionLoader:    sso.LoadSSOSession,
 		cache:            sso.NewCache(paths.SSOCacheDir()),
+		isTerminal:       func() bool { return term.IsTerminal(os.Stdin.Fd()) },
+		listProfiles:     defaultListProfiles,
+		selectProfile:    tui.SelectProfile,
 		stderrIsTerminal: func() bool { return term.IsTerminal(os.Stderr.Fd()) },
 		getenv:           os.Getenv,
 	}
@@ -53,7 +64,8 @@ runs ` + "`logout --export`" + ` and eval's the emitted unset statements. --expo
 prints those statements on stdout (status text stays on stderr) directly.
 
 The profile may be given positionally or with --profile/-p; the two forms are
-equivalent (giving both is an error).
+equivalent (giving both is an error). Either form does case-insensitive
+substring matching against ~/.aws/config, same as ` + "`awst login`" + `.
 
 Examples:
   awst logout                      # clear shell creds, keep the SSO token
@@ -80,6 +92,15 @@ Examples:
 					}
 					fmt.Fprintf(cmd.ErrOrStderr(), "Cleared %d cached SSO token(s). Next login will re-run the device flow.\n", n)
 				} else {
+					if d.listProfiles != nil {
+						profile, err = matchProfile(cmd.ErrOrStderr(), profile, d.isTerminal, d.listProfiles, d.selectProfile)
+						if err != nil {
+							if errors.Is(err, tui.ErrAborted) {
+								return nil // user quit the ambiguous-match picker; nothing to do
+							}
+							return err
+						}
+					}
 					sess, err := d.sessionLoader(ctx, profile, "")
 					if err != nil {
 						return err

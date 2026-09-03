@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `awst exec` now accepts saved command files via `--file/-f <path>` or a positional name resolved from the commands directory (`~/.config/aws-tools/commands/ssm`). Saved command files are plain scripts with an optional `# key: value` header block (description/profile/region/instances) — the body is sent verbatim, so heredocs, embedded comments, and blank lines survive untouched. Explicit flags always override header values. The `-i` is now optional; omitting it prompts interactively (or errors in a pipe/CI). New flags: `--file/-f`, `--dir/-d`.
+
+### Changed
+- `--profile` / `-p` (and the positional `[profile]` on `login`/`logout`) now does case-insensitive substring matching against profiles in `~/.aws/config`, on every command that takes a profile (`login`, `logout`, `console`, `connect`, `exec`). An exact match is used as-is. A single substring match is auto-selected (with a note on stderr). Multiple matches show an interactive picker (or error in a pipe/CI with the list of candidates). No matches pass the value through unchanged (the SDK produces the error).
+
 ## [3.13.0] - 2026-07-17
 
 ### Changed

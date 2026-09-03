@@ -307,8 +307,8 @@ func defaultResolveCreds(ctx context.Context, profile, region string) ([]string,
 }
 
 // defaultListProfiles parses ~/.aws/config for profile names.
-// Honors AWS_CONFIG_FILE env override.
-func defaultListProfiles() ([]string, error) {
+// Honors AWS_CONFIG_FILE env override. It is a variable so tests can stub it.
+var defaultListProfiles = func() ([]string, error) {
 	path := os.Getenv("AWS_CONFIG_FILE")
 	if path == "" {
 		path = paths.AWSConfigFile()

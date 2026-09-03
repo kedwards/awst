@@ -132,6 +132,10 @@ func printConfig(w io.Writer) {
 	fmt.Fprintf(tw, "  Dir\t%s\n", marked(envOr("AWST_RUN_CMD_USER", defaultCmd)))
 	fmt.Fprintln(tw, "")
 
+	fmt.Fprintln(tw, "Commands (awst exec)")
+	fmt.Fprintf(tw, "  Dir\t%s\n", marked(envOr("AWST_EXEC_CMD_DIR", paths.ExecCommandsDir())))
+	fmt.Fprintln(tw, "")
+
 	fmt.Fprintln(tw, "Regions (picker)")
 	if user, _ := regions.Load(paths.RegionsFile()); len(user) > 0 {
 		fmt.Fprintf(tw, "  Source\t%s (%d configured)\n", paths.RegionsFile(), len(user))
