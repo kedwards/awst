@@ -67,6 +67,7 @@ func tempCreds() aws.Credentials {
 }
 
 func TestConsole_OpensBrowserWithLoginURL(t *testing.T) {
+	setTestProfiles(t, "dev")
 	var opened string
 	d := consoleTestDeps("signin-xyz", tempCreds(), &opened)
 
@@ -79,6 +80,7 @@ func TestConsole_OpensBrowserWithLoginURL(t *testing.T) {
 }
 
 func TestConsole_ProfileFlagEquivalentToPositional(t *testing.T) {
+	setTestProfiles(t, "dev")
 	var opened string
 	d := consoleTestDeps("signin-xyz", tempCreds(), &opened)
 
@@ -96,6 +98,7 @@ func TestConsole_ProfileFlagAndPositionalConflict(t *testing.T) {
 }
 
 func TestConsole_ServiceFlagTargetsServiceHome(t *testing.T) {
+	setTestProfiles(t, "dev")
 	var opened string
 	d := consoleTestDeps("tok", tempCreds(), &opened)
 
@@ -105,6 +108,7 @@ func TestConsole_ServiceFlagTargetsServiceHome(t *testing.T) {
 }
 
 func TestConsole_NoBrowserPrintsButDoesNotOpen(t *testing.T) {
+	setTestProfiles(t, "dev")
 	var opened string
 	d := consoleTestDeps("tok", tempCreds(), &opened)
 
@@ -115,6 +119,7 @@ func TestConsole_NoBrowserPrintsButDoesNotOpen(t *testing.T) {
 }
 
 func TestConsole_RequiresSessionToken(t *testing.T) {
+	setTestProfiles(t, "dev")
 	var opened string
 	// Long-term creds (no session token) can't be federated.
 	d := consoleTestDeps("tok", aws.Credentials{AccessKeyID: "AKIA", SecretAccessKey: "s"}, &opened)
@@ -126,6 +131,7 @@ func TestConsole_RequiresSessionToken(t *testing.T) {
 }
 
 func TestConsole_ContainerFlag_OpensFirefoxContainer(t *testing.T) {
+	setTestProfiles(t, "dev")
 	var browserURL, containerURL string
 	d := consoleTestDeps("tok", tempCreds(), &browserURL)
 	d.openFirefox = func(u string) error { containerURL = u; return nil }
@@ -139,6 +145,7 @@ func TestConsole_ContainerFlag_OpensFirefoxContainer(t *testing.T) {
 }
 
 func TestConsole_AutoDetect_OpensContainer(t *testing.T) {
+	setTestProfiles(t, "dev")
 	var opened string
 	d := consoleTestDeps("tok", tempCreds(), &opened)
 	d.detectContainer = func() bool { return true } // extension present
@@ -150,6 +157,7 @@ func TestConsole_AutoDetect_OpensContainer(t *testing.T) {
 }
 
 func TestConsole_NoContainerFlag_ForcesPlainTab(t *testing.T) {
+	setTestProfiles(t, "dev")
 	var opened string
 	d := consoleTestDeps("tok", tempCreds(), &opened)
 	d.detectContainer = func() bool { return true } // present, but...
@@ -162,6 +170,7 @@ func TestConsole_NoContainerFlag_ForcesPlainTab(t *testing.T) {
 }
 
 func TestConsole_ContainerViaEnv(t *testing.T) {
+	setTestProfiles(t, "dev")
 	t.Setenv("AWST_CONSOLE_CONTAINER", "1")
 	var browserURL, containerURL string
 	d := consoleTestDeps("tok", tempCreds(), &browserURL)
@@ -174,6 +183,7 @@ func TestConsole_ContainerViaEnv(t *testing.T) {
 }
 
 func TestConsole_ContainerNoBrowser_PrintsButDoesNotOpen(t *testing.T) {
+	setTestProfiles(t, "dev")
 	var browserURL, containerURL string
 	d := consoleTestDeps("tok", tempCreds(), &browserURL)
 	d.openFirefox = func(u string) error { containerURL = u; return nil }
@@ -186,6 +196,7 @@ func TestConsole_ContainerNoBrowser_PrintsButDoesNotOpen(t *testing.T) {
 }
 
 func TestConsole_AutoLoginWhenNoCachedToken(t *testing.T) {
+	setTestProfiles(t, "dev")
 	cfg := writeAWSConfig(t, ssoSessionConfig) // defines profile "dev" -> sso_session "my-sso"
 	d := consoleTestDeps("tok", tempCreds(), new(string))
 

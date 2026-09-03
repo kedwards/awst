@@ -50,6 +50,12 @@ func RunCommandsDir() string {
 	return filepath.Join(ConfigDir(), "aws-tools", "commands", "aws")
 }
 
+// ExecCommandsDir is where `awst exec` looks up saved command files by name.
+// Override with AWST_EXEC_CMD_DIR or the exec command's -d flag.
+func ExecCommandsDir() string {
+	return filepath.Join(ConfigDir(), "aws-tools", "commands", "ssm")
+}
+
 func ConnectionsFile() string {
 	return filepath.Join(ConfigDir(), "aws-tools", "connections.config")
 }

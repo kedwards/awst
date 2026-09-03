@@ -278,7 +278,7 @@ Examples:
 			// Resolve profile/region, prompting with a picker when missing and
 			// interactive (skips the region prompt when already resolvable).
 			var perr error
-			effProfile, effRegion, perr = resolveProfileRegion(ctx, effProfile, effRegion, d.isTerminal)
+			effProfile, effRegion, perr = resolveProfileRegion(ctx, cmd.ErrOrStderr(), effProfile, effRegion, d.isTerminal)
 			if perr != nil {
 				if errors.Is(perr, tui.ErrAborted) {
 					return nil

@@ -38,6 +38,12 @@ func TestRunCommandsDir_DefaultsToConfigDir(t *testing.T) {
 	require.Equal(t, filepath.Join("/cfg", "aws-tools", "commands", "aws"), RunCommandsDir())
 }
 
+func TestExecCommandsDir_DefaultsToConfigDir(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/cfg")
+
+	require.Equal(t, filepath.Join("/cfg", "aws-tools", "commands", "ssm"), ExecCommandsDir())
+}
+
 func TestDataDir_DefaultsToXDG(t *testing.T) {
 	setTestHome(t, "/home/fake")
 

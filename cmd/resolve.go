@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -39,11 +40,14 @@ var lookupProfileRegion = func(ctx context.Context, profile string) string {
 
 // ensureProfile resolves the AWS profile, prompting with a picker only when it
 // can't be resolved and stdin is interactive. Resolution order:
-// given value → AWS_PROFILE → picker → "" (let the SDK default chain decide).
-func ensureProfile(in string, isTerminal func() bool,
+// given value (with substring matching) → AWS_PROFILE → picker → "" (let the SDK default chain decide).
+// w receives the substring-match note matchProfile prints for a single-match
+// auto-select (the caller's cmd.ErrOrStderr(), so tests can capture it and
+// -w redirection behaves like every other status line in the codebase).
+func ensureProfile(w io.Writer, in string, isTerminal func() bool,
 	list func() ([]string, error), pick func([]tui.ProfileItem) (string, error)) (string, error) {
 	if in != "" {
-		return in, nil
+		return matchProfile(w, in, isTerminal, list, pick)
 	}
 	if env := os.Getenv("AWS_PROFILE"); env != "" {
 		return env, nil
@@ -63,6 +67,57 @@ func ensureProfile(in string, isTerminal func() bool,
 		items[i] = tui.ProfileItem{Profile: n}
 	}
 	return pick(items)
+}
+
+// matchProfile resolves a partial profile name against the configured profiles.
+// It tries an exact match first, then case-insensitive substring matching:
+//   - exact match → use it immediately
+//   - one substring match → auto-select with a note on stderr
+//   - multiple matches → interactive picker (or error in a pipe/CI)
+//   - no matches → return the original string (let the SDK produce the error)
+func matchProfile(w io.Writer, in string, isTerminal func() bool,
+	list func() ([]string, error), pick func([]tui.ProfileItem) (string, error)) (string, error) {
+	if w == nil {
+		w = io.Discard
+	}
+	names, err := list()
+	if err != nil {
+		return in, nil // list failed; let the SDK handle it
+	}
+
+	// Exact match.
+	for _, n := range names {
+		if n == in {
+			return in, nil
+		}
+	}
+
+	// Case-insensitive substring matches.
+	lower := strings.ToLower(in)
+	var matches []string
+	for _, n := range names {
+		if strings.Contains(strings.ToLower(n), lower) {
+			matches = append(matches, n)
+		}
+	}
+
+	switch len(matches) {
+	case 0:
+		return in, nil // no match; SDK will produce the error
+	case 1:
+		fmt.Fprintf(w, "Profile %q matched %q\n", in, matches[0])
+		return matches[0], nil
+	default:
+		if isTerminal == nil || !isTerminal() {
+			return "", fmt.Errorf("profile %q matched multiple profiles: %s; pass the full name",
+				in, strings.Join(matches, ", "))
+		}
+		items := make([]tui.ProfileItem, len(matches))
+		for i, n := range matches {
+			items[i] = tui.ProfileItem{Profile: n}
+		}
+		return pick(items)
+	}
 }
 
 // ensureRegion resolves the AWS region, prompting with a picker only when it
@@ -97,8 +152,8 @@ func ensureRegion(ctx context.Context, profile, regionFlag string, isTerminal fu
 
 // resolveProfileRegion resolves the profile first, then the region (skipping the
 // region picker when it's already known). Used by the commands that need both.
-func resolveProfileRegion(ctx context.Context, profile, region string, isTerminal func() bool) (string, string, error) {
-	p, err := ensureProfile(profile, isTerminal, defaultListProfiles, tui.SelectProfile)
+func resolveProfileRegion(ctx context.Context, w io.Writer, profile, region string, isTerminal func() bool) (string, string, error) {
+	p, err := ensureProfile(w, profile, isTerminal, defaultListProfiles, tui.SelectProfile)
 	if err != nil {
 		return "", "", err
 	}

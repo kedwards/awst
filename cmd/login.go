@@ -98,12 +98,16 @@ This is what the ` + "`awst shell init`" + ` wrapper uses to make
 ` + "`awst <profile>`" + ` behave like ` + "`assume <profile>`" + `.
 
 The profile may be given positionally or with --profile/-p; the two forms are
-equivalent (giving both is an error).
+equivalent (giving both is an error). Either form does case-insensitive
+substring matching against ~/.aws/config: an exact match is used as-is, a
+single substring match is auto-selected (with a note on stderr), multiple
+matches show a picker (or a hard error in a pipe/CI).
 
 Examples:
   awst login
   awst login dev
   awst login --profile dev
+  awst login coffee                # matches rch-platform-dev-coffee
   awst login dev --no-browser
   eval "$(awst login dev --export)"`,
 		Args: cobra.MaximumNArgs(1),
@@ -116,6 +120,15 @@ Examples:
 			profile, err := profileArg(profileFlag, args)
 			if err != nil {
 				return err
+			}
+			if profile != "" && d.listProfiles != nil {
+				profile, err = matchProfile(cmd.ErrOrStderr(), profile, d.isTerminal, d.listProfiles, d.selectProfile)
+				if err != nil {
+					if errors.Is(err, tui.ErrAborted) {
+						return nil // user quit the ambiguous-match picker; nothing to do
+					}
+					return err
+				}
 			}
 			if profile == "" {
 				p, err := d.pickProfile(ctx, cmd)
