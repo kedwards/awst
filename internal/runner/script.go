@@ -1,4 +1,4 @@
-package ssmexec
+package runner
 
 import (
 	"fmt"
@@ -7,9 +7,10 @@ import (
 	"strings"
 )
 
-// Script is a saved `awst exec` command file: an optional leading block of
-// "# key: value" header comments (description/profile/region/instances)
-// followed by the shell body sent verbatim to AWS-RunShellScript.
+// Script is a saved awst command file, shared by `awst exec` and `awst run`:
+// an optional leading block of "# key: value" header comments
+// (description/profile/region/instances) followed by the body, which is sent
+// verbatim to the shell (AWS-RunShellScript for exec, `sh -c` for run).
 type Script struct {
 	Name      string
 	Path      string
@@ -26,8 +27,7 @@ type Script struct {
 // isn't a recognized header comment — blank, code, or an unrecognized
 // comment — ends header parsing, and it plus everything after it is kept
 // as Body exactly as written, so heredocs, embedded "#" text, and blank
-// lines in the body survive untouched (unlike runner.LoadSnippet, which
-// strips comments/blanks throughout — not safe for a heredoc body).
+// lines in the body survive untouched.
 func Load(path string) (Script, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {

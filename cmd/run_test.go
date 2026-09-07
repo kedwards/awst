@@ -71,7 +71,7 @@ func runRunCmd(t *testing.T, d runDeps, args ...string) (stdout, stderr string, 
 	return out.String(), errBuf.String(), err
 }
 
-func newTestDeps(t *testing.T, baseDir string, child *childRecorder) runDeps {
+func newTestDeps(t *testing.T, _ string, child *childRecorder) runDeps {
 	t.Helper()
 	return runDeps{
 		resolveCreds: func(_ context.Context, profile, _ string) ([]string, error) {
@@ -88,19 +88,15 @@ func newTestDeps(t *testing.T, baseDir string, child *childRecorder) runDeps {
 				{Profile: "prod", Region: "us-east-1"},
 			}, nil
 		},
-		ensureLogin: func(_ context.Context, _ io.Writer, _ string) error { return nil },
-		runChild:    child.run,
-		shell:       func() (string, error) { return "sh", nil },
-		getenv: func(k string) string {
-			if k == "AWST_RUN_CMD_BASE" || k == "AWST_RUN_CMD_USER" {
-				return baseDir
-			}
-			return ""
-		},
+		ensureLogin:   func(_ context.Context, _ io.Writer, _ string) error { return nil },
+		runChild:      child.run,
+		shell:         func() (string, error) { return "sh", nil },
+		isTerminal:    func() bool { return false },
+		selectCommand: func([]string) (string, error) { return "", errors.New("picker not expected") },
 	}
 }
 
-func TestRun_ListsCommandsWhenNoArgs(t *testing.T) {
+func TestRun_ListFlag(t *testing.T) {
 	d := t.TempDir()
 	writeFileT(t, d, "vpc-cidrs", "#!/bin/sh\n# Show VPC CIDRs\naws ec2 describe-vpcs\n", false)
 	writeFileT(t, d, "instances", "#!/bin/sh\n# List instances\naws ec2 describe-instances\n", true)
@@ -108,7 +104,7 @@ func TestRun_ListsCommandsWhenNoArgs(t *testing.T) {
 	child := &childRecorder{}
 	deps := newTestDeps(t, d, child)
 
-	out, _, err := runRunCmd(t, deps, "run", "-d", d)
+	out, _, err := runRunCmd(t, deps, "run", "-d", d, "-l")
 	require.NoError(t, err)
 	require.Contains(t, out, "vpc-cidrs")
 	require.Contains(t, out, "Show VPC CIDRs")
@@ -117,9 +113,38 @@ func TestRun_ListsCommandsWhenNoArgs(t *testing.T) {
 	require.Empty(t, child.calls, "list mode should not invoke child")
 }
 
+func TestRun_NoSourceNonInteractive_ListsAndErrors(t *testing.T) {
+	d := t.TempDir()
+	writeFileT(t, d, "vpc-cidrs", "#!/bin/sh\n# Show VPC CIDRs\naws ec2 describe-vpcs\n", false)
+	child := &childRecorder{}
+	deps := newTestDeps(t, d, child)
+
+	out, _, err := runRunCmd(t, deps, "run", "-d", d)
+	require.Error(t, err, "a pipe/CI must not guess a command")
+	require.Contains(t, out, "vpc-cidrs", "the listing is still printed as a hint")
+	require.Empty(t, child.calls)
+}
+
+func TestRun_NoSourceInteractive_PicksSavedCommand(t *testing.T) {
+	d := t.TempDir()
+	writeFileT(t, d, "vpc-cidrs", "aws ec2 describe-vpcs\n", false)
+	child := &childRecorder{}
+	deps := newTestDeps(t, d, child)
+	deps.isTerminal = func() bool { return true }
+	deps.selectCommand = func(names []string) (string, error) {
+		require.Equal(t, []string{"vpc-cidrs"}, names)
+		return "vpc-cidrs", nil
+	}
+
+	_, _, err := runRunCmd(t, deps, "run", "-d", d)
+	require.NoError(t, err)
+	require.Len(t, child.calls, 2, "picked command runs against the resolved targets")
+	require.Contains(t, child.calls[0].args[2], "aws ec2 describe-vpcs")
+}
+
 func TestRun_SnippetNoFilterUsesResolvedTargets(t *testing.T) {
 	d := t.TempDir()
-	writeFileT(t, d, "vpc-cidrs", "# header\naws ec2 describe-vpcs --region #REGION\n", false)
+	writeFileT(t, d, "vpc-cidrs", "# header\naws ec2 describe-vpcs --region \"$AWS_REGION\"\n", false)
 
 	child := &childRecorder{}
 	deps := newTestDeps(t, d, child)
@@ -130,8 +155,10 @@ func TestRun_SnippetNoFilterUsesResolvedTargets(t *testing.T) {
 	require.Contains(t, out, "prod")
 
 	require.Len(t, child.calls, 2)
-	require.Equal(t, []string{"sh", "-c"}, child.calls[0].args[:2], "snippets run via sh -c")
-	require.Contains(t, child.calls[0].args[2], "--region us-east-1")
+	require.Equal(t, []string{"sh", "-c"}, child.calls[0].args[:2], "bodies run via sh -c")
+	require.Contains(t, child.calls[0].args[2], "# header", "body is verbatim, comments included")
+	require.Contains(t, child.calls[0].args[2], `--region "$AWS_REGION"`)
+	require.Equal(t, "us-east-1", child.calls[0].env["AWS_REGION"])
 	require.Equal(t, "AKIA-dev", child.calls[0].env["AWS_ACCESS_KEY_ID"])
 	require.Equal(t, "dev", child.calls[0].env["AWS_PROFILE"])
 	require.Equal(t, "AKIA-prod", child.calls[1].env["AWS_ACCESS_KEY_ID"])
@@ -139,7 +166,7 @@ func TestRun_SnippetNoFilterUsesResolvedTargets(t *testing.T) {
 
 func TestRun_SnippetWithFilter(t *testing.T) {
 	d := t.TempDir()
-	writeFileT(t, d, "snippet", "echo #ENV in #REGION\n", false)
+	writeFileT(t, d, "snippet", "echo \"$AWS_PROFILE in $AWS_REGION\"\n", false)
 
 	child := &childRecorder{}
 	deps := newTestDeps(t, d, child)
@@ -147,8 +174,10 @@ func TestRun_SnippetWithFilter(t *testing.T) {
 	_, _, err := runRunCmd(t, deps, "run", "-d", d, "snippet", "qa:us-west-2 ops")
 	require.NoError(t, err)
 	require.Len(t, child.calls, 2)
-	require.Contains(t, child.calls[0].args[2], "echo qa in us-west-2")
-	require.Contains(t, child.calls[1].args[2], "echo ops in us-east-1")
+	require.Equal(t, "qa", child.calls[0].env["AWS_PROFILE"])
+	require.Equal(t, "us-west-2", child.calls[0].env["AWS_REGION"])
+	require.Equal(t, "ops", child.calls[1].env["AWS_PROFILE"])
+	require.Equal(t, "us-east-1", child.calls[1].env["AWS_REGION"])
 }
 
 func TestRun_InlineCommand(t *testing.T) {
@@ -156,7 +185,7 @@ func TestRun_InlineCommand(t *testing.T) {
 	child := &childRecorder{}
 	deps := newTestDeps(t, d, child)
 
-	_, _, err := runRunCmd(t, deps, "run", "-d", d, "-q", "aws s3 ls", "dev")
+	_, _, err := runRunCmd(t, deps, "run", "-d", d, "-c", "aws s3 ls", "dev")
 	require.NoError(t, err)
 	require.Len(t, child.calls, 1)
 	require.Equal(t, "aws s3 ls", child.calls[0].args[2])
@@ -206,7 +235,7 @@ func TestRun_ExecutableWithFilter_IteratesPerProfile(t *testing.T) {
 
 func TestRun_AuthFailure_WarnAndContinue(t *testing.T) {
 	d := t.TempDir()
-	writeFileT(t, d, "snippet", "echo #ENV\n", false)
+	writeFileT(t, d, "snippet", "echo hi\n", false)
 
 	child := &childRecorder{}
 	deps := newTestDeps(t, d, child)
@@ -218,7 +247,8 @@ func TestRun_AuthFailure_WarnAndContinue(t *testing.T) {
 	}
 
 	_, stderr, err := runRunCmd(t, deps, "run", "-d", d, "snippet", "dev prod")
-	require.NoError(t, err, "auth failure on one profile should not fail the command")
+	require.Error(t, err, "a failed profile makes the command exit non-zero")
+	require.Contains(t, err.Error(), "dev")
 	require.Contains(t, stderr, "dev")
 	require.Contains(t, stderr, "skip")
 	require.Len(t, child.calls, 1, "only the successful profile runs")
@@ -227,7 +257,7 @@ func TestRun_AuthFailure_WarnAndContinue(t *testing.T) {
 
 func TestRun_LoginFailure_SkipsProfile(t *testing.T) {
 	d := t.TempDir()
-	writeFileT(t, d, "snippet", "echo #ENV\n", false)
+	writeFileT(t, d, "snippet", "echo hi\n", false)
 
 	child := &childRecorder{}
 	deps := newTestDeps(t, d, child)
@@ -239,16 +269,16 @@ func TestRun_LoginFailure_SkipsProfile(t *testing.T) {
 	}
 
 	_, stderr, err := runRunCmd(t, deps, "run", "-d", d, "snippet", "dev prod")
-	require.NoError(t, err)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "dev")
 	require.Contains(t, stderr, "skip")
-	require.Contains(t, stderr, "dev")
 	require.Len(t, child.calls, 1, "login failure skips that profile before running")
 	require.Equal(t, "prod", child.calls[0].env["AWS_PROFILE"])
 }
 
 func TestRun_NoFilterAborted_ExitsClean(t *testing.T) {
 	d := t.TempDir()
-	writeFileT(t, d, "snippet", "echo #ENV\n", false)
+	writeFileT(t, d, "snippet", "echo hi\n", false)
 
 	child := &childRecorder{}
 	deps := newTestDeps(t, d, child)
@@ -276,8 +306,9 @@ func TestRun_HelpFlag(t *testing.T) {
 	out, _, err := runRunCmd(t, deps, "run", "-h")
 	require.NoError(t, err)
 	require.Contains(t, out, "run")
-	require.Contains(t, out, "-q")
-	require.Contains(t, out, "-d")
+	for _, flag := range []string{"-c", "-f", "-d", "-l", "-p", "-r", "-t"} {
+		require.Contains(t, out, flag, "shared flag %s missing from help", flag)
+	}
 }
 
 func writeFileT(t *testing.T, dir, name, body string, exec bool) string {
@@ -290,4 +321,103 @@ func writeFileT(t *testing.T, dir, name, body string, exec bool) string {
 	}
 	require.NoError(t, os.WriteFile(p, []byte(body), mode))
 	return p
+}
+
+func TestRun_ProfileFlagSingleTarget(t *testing.T) {
+	setTestProfiles(t, "rch-platform-dev-coffee", "rch-platform-prod-coffee")
+	t.Setenv("AWS_REGION", "")
+	t.Setenv("AWS_DEFAULT_REGION", "")
+
+	d := t.TempDir()
+	child := &childRecorder{}
+	deps := newTestDeps(t, d, child)
+	deps.resolveTargets = func(context.Context) ([]runner.Target, error) {
+		return nil, errors.New("picker not expected when -p is given")
+	}
+
+	_, stderr, err := runRunCmd(t, deps, "run", "-d", d, "-c", "aws s3 ls", "-p", "dev-coffee", "-r", "us-west-2")
+	require.NoError(t, err)
+	require.Len(t, child.calls, 1)
+	require.Equal(t, "rch-platform-dev-coffee", child.calls[0].env["AWS_PROFILE"], "-p does substring matching")
+	require.Equal(t, "us-west-2", child.calls[0].env["AWS_REGION"])
+	require.Contains(t, stderr, "matched", "the substring match is announced on stderr")
+}
+
+func TestRun_ProfileFlagAndFilterRejected(t *testing.T) {
+	d := t.TempDir()
+	child := &childRecorder{}
+	deps := newTestDeps(t, d, child)
+
+	_, _, err := runRunCmd(t, deps, "run", "-d", d, "-c", "aws s3 ls", "-p", "dev", "prod")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not both")
+	require.Empty(t, child.calls)
+}
+
+func TestRun_HeaderSuppliesProfileDefault(t *testing.T) {
+	setTestProfiles(t, "prod")
+	t.Setenv("AWS_REGION", "")
+	t.Setenv("AWS_DEFAULT_REGION", "")
+
+	d := t.TempDir()
+	writeFileT(t, d, "audit", "# profile: prod\n# region: eu-west-1\naws iam list-users\n", false)
+	child := &childRecorder{}
+	deps := newTestDeps(t, d, child)
+	deps.resolveTargets = func(context.Context) ([]runner.Target, error) {
+		return nil, errors.New("picker not expected when the header names a profile")
+	}
+
+	_, _, err := runRunCmd(t, deps, "run", "-d", d, "audit")
+	require.NoError(t, err)
+	require.Len(t, child.calls, 1)
+	require.Equal(t, "prod", child.calls[0].env["AWS_PROFILE"])
+	require.Equal(t, "eu-west-1", child.calls[0].env["AWS_REGION"])
+	require.Equal(t, "aws iam list-users\n", child.calls[0].args[2], "header is stripped from the body")
+}
+
+func TestRun_TargetsFlagLeavesCommandPickable(t *testing.T) {
+	d := t.TempDir()
+	writeFileT(t, d, "vpc-cidrs", "aws ec2 describe-vpcs\n", false)
+	child := &childRecorder{}
+	deps := newTestDeps(t, d, child)
+	deps.isTerminal = func() bool { return true }
+	deps.selectCommand = func(names []string) (string, error) {
+		require.Equal(t, []string{"vpc-cidrs"}, names)
+		return "vpc-cidrs", nil
+	}
+	deps.resolveTargets = func(context.Context) ([]runner.Target, error) {
+		return nil, errors.New("target picker not expected when -t is given")
+	}
+
+	_, _, err := runRunCmd(t, deps, "run", "-d", d, "-t", "qa:us-west-2 ops")
+	require.NoError(t, err)
+	require.Len(t, child.calls, 2, "-t names the targets while the command is picked")
+	require.Equal(t, "qa", child.calls[0].env["AWS_PROFILE"])
+	require.Equal(t, "us-west-2", child.calls[0].env["AWS_REGION"])
+	require.Equal(t, "ops", child.calls[1].env["AWS_PROFILE"])
+}
+
+func TestRun_TargetsFlagAndPositionalFilterRejected(t *testing.T) {
+	d := t.TempDir()
+	writeFileT(t, d, "snippet", "echo hi\n", false)
+	child := &childRecorder{}
+	deps := newTestDeps(t, d, child)
+
+	_, _, err := runRunCmd(t, deps, "run", "-d", d, "-t", "dev", "snippet", "prod")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not both")
+	require.Empty(t, child.calls)
+}
+
+func TestRun_TargetsFlagEquivalentToPositional(t *testing.T) {
+	d := t.TempDir()
+	writeFileT(t, d, "snippet", "echo hi\n", false)
+	child := &childRecorder{}
+	deps := newTestDeps(t, d, child)
+
+	_, _, err := runRunCmd(t, deps, "run", "-d", d, "snippet", "-t", "qa:eu-west-1")
+	require.NoError(t, err)
+	require.Len(t, child.calls, 1)
+	require.Equal(t, "qa", child.calls[0].env["AWS_PROFILE"])
+	require.Equal(t, "eu-west-1", child.calls[0].env["AWS_REGION"])
 }

@@ -105,7 +105,7 @@ wrapper installed, the raw equivalent is `eval "$(awst login --export <profile>)
 `--profile` / `-p` (and the positional `[profile]` on `login`/`logout`) does
 case-insensitive substring matching against profiles in `~/.aws/config`.
 Every command that takes a profile — `login`, `logout`, `console`,
-`connect`, `exec` — resolves it the same way:
+`connect`, `exec`, `run` — resolves it the same way:
 
 | Input | Result |
 |---|---|
@@ -393,6 +393,70 @@ Process discovery is per-OS: Linux reads `/proc`; macOS shells out to
 
 Termination uses `SIGTERM`, waits 250ms, then escalates to `SIGKILL`.
 
+### Saved commands (shared by `exec` and `run`)
+
+`awst exec` and `awst run` present the same surface. They differ only in
+where the command lands — `exec` sends it to SSM-managed EC2 instances,
+`run` execs it locally once per AWS profile — so everything below applies
+to both.
+
+| Flag | Meaning |
+| --- | --- |
+| `-c`, `--command` | inline command body |
+| `-f`, `--file` | path to a command file |
+| `[name]` (positional) | saved command, resolved from the commands directory |
+| `-d`, `--dir` | commands directory (exclusive override; also `AWST_CMD_DIR`) |
+| `-l`, `--list` | list the available saved commands and exit |
+| `-p`, `--profile` | AWS profile (case-insensitive substring matching) |
+| `-r`, `--region` | AWS region |
+
+Targets are named by a flag on both, so you can name the targets and
+still pick the command interactively: `-i` on `exec`, `-t` on `run`.
+
+The body comes from exactly one of `-c`, `-f`, or `[name]`; passing more
+than one is an error. With none of them, a terminal shows a picker of
+saved commands, and a pipe / CI prints the list and exits non-zero.
+
+#### Command files
+
+A saved command is a plain script. An optional leading block of
+`# key: value` comments sets defaults; everything after it is the body,
+kept byte-for-byte:
+
+```
+# description: BARX vendor connectivity check
+# profile: rch-platform-dev-coffee
+# region: us-east-1
+# instances: i-0823f48e03ca63c37
+cat > /tmp/barx_req.xml <<EOF
+...
+EOF
+curl -sS --cert ...
+rm -f /tmp/barx_req.xml
+```
+
+Recognized keys: `description`, `profile`, `region`, and `instances`
+(`exec` only). A `#!` shebang on line 1 is preserved. The first line that
+isn't a recognized header comment ends the header, so unrecognized
+comments, blank lines, and heredocs in the body survive untouched.
+
+Explicit flags always win over header values, which win over the existing
+resolution chain (`AWS_PROFILE` / `AWS_REGION` env vars, SDK config,
+interactive picker).
+
+#### Where command files live
+
+Each command has its own directory pair, layered in increasing priority:
+
+| | `awst run` | `awst exec` |
+| --- | --- | --- |
+| base | `$AWST_RUN_CMD_BASE` | `$AWST_EXEC_CMD_BASE` |
+| user | `$AWST_RUN_CMD_USER` | `$AWST_EXEC_CMD_USER` |
+| default for both | `~/.config/aws-tools/commands/aws` | `~/.config/aws-tools/commands/ssm` |
+
+`-d <path>` (or `$AWST_CMD_DIR`) is an exclusive override that replaces
+both layers, for either command.
+
 ### `awst exec`
 
 Run a shell command on one or more SSM-managed instances via
@@ -407,51 +471,8 @@ awst exec -c 'systemctl restart nginx' -i web -p prod -r us-east-2
 awst exec barx-rate-check                  # saved command (header sets profile/region/instances)
 awst exec -f ./check.sh -i web-1           # ad-hoc file
 awst exec                                  # pick a saved command interactively
+awst exec -l                               # list saved commands
 ```
-
-#### Command source precedence
-
-The command body comes from exactly one of (first match wins):
-
-1. `--command/-c` — inline string
-2. `--file/-f` — path to a script file
-3. positional `name` — resolved from the commands directory
-
-Passing more than one is an error. With none of the three, a terminal
-shows a picker of saved command names; a pipe/CI prints the list and
-exits non-zero.
-
-#### Saved command files
-
-A saved command is a plain script file. Optional leading `# key: value`
-header comments set defaults — everything else is sent verbatim:
-
-```
-# description: BARX vendor connectivity check
-# profile: rch-platform-dev-coffee
-# region: us-east-1
-# instances: i-0823f48e03ca63c37
-cat > /tmp/barx_req.xml <<EOF
-...
-EOF
-curl -sS --cert ...
-rm -f /tmp/barx_req.xml
-```
-
-Recognized header keys: `description`, `profile`, `region`, `instances`.
-A `#!` shebang on line 1 is preserved. Unrecognized comments and blank
-lines in the body are kept byte-for-byte (unlike `awst run` snippets,
-which strip comments and blanks — unsafe for heredocs).
-
-Saved commands live under `~/.config/aws-tools/commands/ssm` (layered
-with `awst run`'s directory discovery). Override with `AWST_EXEC_CMD_DIR`
-or `-d`.
-
-#### Flag / header / env precedence
-
-Explicit flags always win over header values, which win over the
-existing resolution chain (`AWS_PROFILE`/`AWS_REGION` env vars, SDK
-config, interactive picker).
 
 `-i` is optional: when still empty after flags + header, `awst exec`
 prompts interactively with a picker. In a pipe / CI, omitting `-i` is a
@@ -459,6 +480,9 @@ hard error. `-i` accepts a comma-separated mix of Name-tag substring
 patterns and `i-…` IDs; each piece is expanded against the live SSM
 inventory; a no-match for any piece is a hard error (no silent partial
 runs).
+
+Like `connect`, `console`, and `run`, `exec` triggers the SSO device flow
+when the profile's cached token is missing or expired.
 
 Output: stdout/stderr come from `GetCommandInvocation`, which caps at
 24 KB stdout / 8 KB stderr per instance. Larger output would need S3
@@ -470,34 +494,39 @@ features. PowerShell targets aren't supported yet.
 
 ### `awst run`
 
-Run a saved snippet, an executable script, or an inline command across
-one or more AWS profiles. For each profile, awst resolves credentials
-via the SDK chain, exports `AWS_PROFILE` / `AWS_REGION` /
-`AWS_ACCESS_KEY_ID` / etc. into the child env, and execs the command.
-Per-profile auth failures warn and skip — the rest still run.
+Run a command across one or more AWS profiles. For each target, awst
+resolves credentials via the SDK chain, exports `AWS_PROFILE` /
+`AWS_REGION` / `AWS_ACCESS_KEY_ID` / etc. into the child env, and execs
+the command. Per-profile failures warn and the rest still run, but the
+command exits non-zero listing them.
 
 ```sh
-awst run                                     # list available commands
-awst run vpc-cidrs                           # snippet across every profile in ~/.aws/config
+awst run                                     # pick a saved command
+awst run -l                                  # list saved commands
+awst run vpc-cidrs                           # pick profiles + regions
 awst run vpc-cidrs "dev prod:us-west-2"      # filtered to two profiles
-awst run -q "aws s3 ls" "dev"                # inline command
+awst run -t "dev prod:us-west-2"             # filtered, pick the command
+awst run vpc-cidrs -p dev -r us-west-2       # single target
+awst run -c "aws s3 ls" "dev"                # inline command
 awst run -d ./snippets my-snippet "dev"      # exclusive override of commands dir
 ```
 
-Commands live as files under (in increasing priority):
-- `$AWST_RUN_CMD_BASE` (default `~/.config/aws-tools/commands/aws`)
-- `$AWST_RUN_CMD_USER` (overrides base on collision)
-- `-d <path>` / `$AWST_CMD_DIR` (exclusive — replaces both)
+Targets come from `-t`/`--targets` (or the equivalent trailing
+positional), from `-p`/`-r`, or from a picker. A target filter is
+comma- and/or space-separated `profile` or `profile:region` tokens and
+is the only way to hit several profiles at once (a bare `profile` token
+defaults to `us-east-1`); passing more than one of `-t`, the positional
+filter, and `-p` is an error. Reach for `-t` when you want to name the
+targets but still pick the command from the picker — the positional
+filter can't do that, because the first positional is always the
+command name. With no targets at all, a terminal multi-selects the
+profiles and then picks a region for each, while a pipe / CI errors
+instead of guessing.
 
-Snippet files (non-executable) have comment + blank lines stripped and
-are run via `sh -c`. Placeholders `#ENV` (current profile) and
-`#REGION` (current region) are substituted for back-compat with the
-bash snippet library; new snippets can use `$AWS_PROFILE` / `$AWS_REGION`
-directly since those are exported.
-
-Executable files (`+x`) are exec'd directly:
-- **with a filter** → iterated per profile, with AWS env vars set
-- **without a filter** → run once, no profile loop (the script handles
+Bodies run via `sh -c`. Executable command files (`+x`) are exec'd
+directly instead:
+- **with targets** → iterated per profile, with AWS env vars set
+- **without targets** → run once, no profile loop (the script handles
   its own iteration)
 
 
@@ -541,10 +570,10 @@ internal/connect/   describe (EC2/SSM cross-join + Name resolution),
                     session (StartSession + plugin exec)
 internal/sessions/  per-OS scan for active session-manager-plugin
                     processes (powers `awst list` / `awst kill`)
-internal/ssmexec/   SendCommand + poll loop + pattern expansion +
-                    saved command file loader (powers `awst exec`)
-internal/runner/    dir layering, snippet load, placeholder substitution,
-                    filter parsing (powers `awst run`)
+internal/ssmexec/   SendCommand + poll loop + pattern expansion
+                    (powers `awst exec`)
+internal/runner/    dir layering, command file load (header + verbatim
+                    body), filter parsing (powers exec + run)
 test/acceptance/    no-AWS smoke that pins the eval-able output contract
 ```
 
@@ -569,7 +598,7 @@ Extract a shared package only when a second slice forces it.
 - [x] `awst connect` — EC2 + SSM shell session + port-forwarding (ad-hoc + saved connections; codebuild still TODO)
 - [x] `awst list` / `kill` — local SSM session inspection (Linux /proc, macOS ps)
 - [x] `awst exec` — SendCommand across one/many instances
-- [x] `awst run` — execute snippets across AWS profiles
+- [x] `awst run` — execute commands across AWS profiles
 - [x] `awst config` — print resolved configuration
 - [x] CI workflow — GitHub Actions runs `task ci` on PRs to `main`
 - [x] Distribution: GoReleaser (linux/darwin × amd64/arm64; signing TODO)

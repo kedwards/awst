@@ -98,26 +98,14 @@ func TestResolveScript_NotFound(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestLoadSnippet_StripsCommentsAndBlanks(t *testing.T) {
+func TestList_DescriptionFromHeaderKey(t *testing.T) {
 	d := t.TempDir()
-	p := writeFile(t, d, "s", "# header comment\n# another\n\naws s3 ls\necho done\n", false)
-	got, err := LoadSnippet(p)
+	writeFile(t, d, "hdr", "#!/bin/sh\n# description: header form\naws s3 ls\n", false)
+	writeFile(t, d, "plain", "#!/bin/sh\n# plain form\naws s3 ls\n", false)
+	got, err := List([]string{d})
 	require.NoError(t, err)
-	require.Equal(t, "aws s3 ls\necho done", got)
-}
-
-func TestSubstitute_ReplacesPlaceholders(t *testing.T) {
-	got := Substitute("echo #ENV in #REGION", "dev", "us-east-1")
-	require.Equal(t, "echo dev in us-east-1", got)
-}
-
-func TestSubstitute_AllOccurrences(t *testing.T) {
-	got := Substitute("#ENV-#REGION-#ENV", "p", "r")
-	require.Equal(t, "p-r-p", got)
-}
-
-func TestSubstitute_NoPlaceholdersPassesThrough(t *testing.T) {
-	require.Equal(t, "aws s3 ls", Substitute("aws s3 ls", "dev", "us-east-1"))
+	require.Equal(t, "header form", got[0].Desc)
+	require.Equal(t, "plain form", got[1].Desc)
 }
 
 func TestParseFilter_ProfileOnly(t *testing.T) {

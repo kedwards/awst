@@ -1,7 +1,9 @@
-// Package runner backs `awst run`: command discovery (snippet files +
-// executable scripts under one or more directories), placeholder
-// substitution, and target-filter parsing. Profile-iteration + child-
-// process exec live in cmd/run.go where they have side effects.
+// Package runner backs the saved-command surface shared by `awst run` and
+// `awst exec`: command discovery (script files under one or more
+// directories), the "# key: value" header + verbatim body file format, and
+// target-filter parsing. Execution itself — profile iteration and child
+// processes for run, SendCommand for exec — lives in cmd/ and
+// internal/ssmexec, where it has side effects.
 package runner
 
 import (
@@ -15,7 +17,9 @@ import (
 	"unicode"
 )
 
-const defaultRegion = "us-east-1"
+// DefaultRegion is the region a bare "profile" filter token or a --profile
+// with no resolvable region falls back to.
+const DefaultRegion = "us-east-1"
 
 // Options is the input to ResolveDirs. The fields mirror the bash layering:
 // D (or env equiv) is an exclusive override; otherwise Base + User merge
@@ -102,7 +106,8 @@ func List(dirs []string) ([]Command, error) {
 
 // readDescription returns the first non-shebang comment line, stripped of
 // its leading "# " — matching the bash version's `sed -n '2s/^# *//p'`
-// (line 2 after the shebang).
+// (line 2 after the shebang). A "# description: <text>" header comment
+// (the Script header form) yields just <text>.
 func readDescription(path string) string {
 	f, err := os.Open(path)
 	if err != nil {
@@ -118,6 +123,9 @@ func readDescription(path string) string {
 			continue
 		}
 		if strings.HasPrefix(line, "#") {
+			if k, v, ok := parseHeaderLine(line); ok && k == "description" {
+				return v
+			}
 			return strings.TrimSpace(strings.TrimPrefix(line, "#"))
 		}
 		return ""
@@ -139,47 +147,16 @@ func ResolveScript(name string, dirs []string) (string, error) {
 	return "", fmt.Errorf("command %q not found in any commands directory", name)
 }
 
-// LoadSnippet reads a snippet file, stripping comment lines and blank
-// lines (matching bash `sed '/^#/d; /^$/d'`).
-func LoadSnippet(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	var lines []string
-	s := bufio.NewScanner(f)
-	for s.Scan() {
-		line := s.Text()
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		lines = append(lines, line)
-	}
-	if err := s.Err(); err != nil {
-		return "", err
-	}
-	return strings.Join(lines, "\n"), nil
-}
-
-// Substitute replaces #ENV and #REGION placeholders. Kept for back-compat
-// with the bash snippet library — new snippets can just use $AWS_PROFILE
-// and $AWS_REGION since those are exported into the child env.
-func Substitute(cmd, profile, region string) string {
-	cmd = strings.ReplaceAll(cmd, "#ENV", profile)
-	cmd = strings.ReplaceAll(cmd, "#REGION", region)
-	return cmd
-}
-
 // Target is one profile/region to run against.
 type Target struct {
 	Profile string
 	Region  string
 }
 
-// validateName rejects profile or region names that contain shell metacharacters,
-// preventing injection when names are substituted into shell snippets via Substitute.
-// ponytail: validates only; Substitute is kept for back-compat with snippet files
+// validateName rejects profile or region names that contain shell
+// metacharacters. Filter tokens come from the command line and flow into the
+// child process environment and AWS API calls; keeping them boring costs one
+// check and closes the whole class of quoting surprises.
 func validateName(s string) error {
 	if strings.ContainsAny(s, " \t\n\"'\\;|&<>$`(){}[]!") {
 		return fmt.Errorf("unsafe characters in name %q", s)
@@ -199,7 +176,7 @@ func ParseFilter(s string) ([]Target, error) {
 	}
 	out := make([]Target, 0, len(fields))
 	for _, f := range fields {
-		t := Target{Region: defaultRegion}
+		t := Target{Region: DefaultRegion}
 		if i := strings.IndexByte(f, ':'); i >= 0 {
 			t.Profile = f[:i]
 			t.Region = f[i+1:]

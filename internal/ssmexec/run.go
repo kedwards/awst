@@ -18,11 +18,11 @@ import (
 )
 
 const (
-	documentName    = "AWS-RunShellScript"
-	defaultTimeout  = "600"
-	pollInterval    = 2 * time.Second
-	executionParam  = "executionTimeout"
-	commandsParam   = "commands"
+	documentName   = "AWS-RunShellScript"
+	defaultTimeout = "600"
+	pollInterval   = 2 * time.Second
+	executionParam = "executionTimeout"
+	commandsParam  = "commands"
 )
 
 // CmdClient is the slice of *ssm.Client used by Run.

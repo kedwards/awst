@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
+	"io"
 	"strings"
 	"time"
 
@@ -15,13 +15,13 @@ import (
 
 	"github.com/kedwards/awst/v3/internal/connect"
 	"github.com/kedwards/awst/v3/internal/paths"
-	"github.com/kedwards/awst/v3/internal/runner"
 	"github.com/kedwards/awst/v3/internal/ssmexec"
 	"github.com/kedwards/awst/v3/internal/tui"
 )
 
 type execDeps struct {
 	clients        func(ctx context.Context, profile, region string) (*ssmClients, error)
+	ensureLogin    func(ctx context.Context, errOut io.Writer, profile string) error
 	sleep          func(time.Duration)
 	isTerminal     func() bool
 	selectCommand  func(names []string) (string, error)
@@ -52,39 +52,21 @@ func defaultExecDeps() execDeps {
 				Profile:    profile,
 			}, nil
 		},
-		sleep:      time.Sleep,
-		isTerminal: isStdinTerminal,
-		selectCommand: func(names []string) (string, error) {
-			return tui.SelectFrom("Select a saved command to run", names)
+		ensureLogin: func(ctx context.Context, errOut io.Writer, profile string) error {
+			return defaultSSOLogin().ensure(ctx, errOut, profile, false)
 		},
+		sleep:          time.Sleep,
+		isTerminal:     isStdinTerminal,
+		selectCommand:  selectSavedCommand,
 		selectInstance: tui.SelectInstance,
 	}
 }
 
-// resolveExecDirs returns the commands dir(s) `awst exec` resolves a saved
-// command name against: customDir (the -d flag) is an exclusive override;
-// otherwise AWST_EXEC_CMD_DIR, falling back to paths.ExecCommandsDir().
-func resolveExecDirs(customDir string) ([]string, error) {
-	base := os.Getenv("AWST_EXEC_CMD_DIR")
-	if base == "" {
-		base = paths.ExecCommandsDir()
-	}
-	return runner.ResolveDirs(runner.Options{D: customDir, Base: base})
-}
-
-// loadScriptByName resolves name against dirs and loads it as a Script.
-func loadScriptByName(name string, dirs []string) (ssmexec.Script, error) {
-	p, err := runner.ResolveScript(name, dirs)
-	if err != nil {
-		return ssmexec.Script{}, err
-	}
-	return ssmexec.Load(p)
-}
-
 func newExecCmd(d execDeps) *cobra.Command {
-	var profile, region, command, instances, file, dir string
+	var src cmdSource
+	var profile, region, instances string
 	c := &cobra.Command{
-		Use:   "exec [name] [flags]",
+		Use:   "exec [flags] [name]",
 		Short: "Run a shell command on one or more SSM-managed instances",
 		Long: `Run a shell command via ssm:SendCommand on one or more SSM-managed
 EC2 instances. <instances> is a comma-separated mix of Name-tag substring
@@ -94,14 +76,17 @@ inventory and a no-match is a hard error (no silent partial runs). Omit
 
 The command body comes from exactly one of: --command/-c (inline),
 --file/-f (a path), or a saved command name (positional, resolved from
-the commands directory). With none of those, a terminal shows a picker
-of saved commands; a pipe/CI prints the list and exits non-zero.
+the commands directory) — the same three sources, in the same order of
+precedence, as "awst run". With none of those, a terminal shows a picker
+of saved commands; a pipe/CI prints the list and exits non-zero. Use
+--list/-l to just print the list.
 
 A saved command file is a plain script whose leading '# key: value'
 comments (description/profile/region/instances) set defaults — explicit
 flags always win over them. Everything after the header, including
 heredocs and blank lines, is sent verbatim. Saved commands live under
-~/.config/aws-tools/commands/ssm (override with AWST_EXEC_CMD_DIR or -d).
+~/.config/aws-tools/commands/ssm (override with AWST_EXEC_CMD_BASE /
+AWST_EXEC_CMD_USER, or -d / AWST_CMD_DIR for an exclusive override).
 
 The command runs under AWS-RunShellScript (default /bin/sh — include
 your own shebang or wrap with bash -c if you need bash features). stdout
@@ -114,96 +99,41 @@ Examples:
   awst exec -c 'systemctl restart nginx' -i web -p prod -r us-east-2
   awst exec barx-rate-check                  # saved command, header sets profile/region/instances
   awst exec -f ./check.sh -i web-1           # ad-hoc file
-  awst exec                                  # pick a saved command interactively`,
+  awst exec                                  # pick a saved command interactively
+  awst exec -l                               # list saved commands`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			name := ""
 			if len(args) == 1 {
-				name = args[0]
+				src.name = args[0]
 			}
-			sources := 0
-			for _, s := range []string{command, file, name} {
-				if strings.TrimSpace(s) != "" {
-					sources++
-				}
-			}
-			if sources > 1 {
-				return errors.New("specify the command with only one of --command/-c, --file/-f, or a saved command name")
-			}
-
-			var script ssmexec.Script
-			haveScript := false
-			var err error
-			switch {
-			case strings.TrimSpace(command) != "":
-				// inline command; nothing to load
-			case file != "":
-				if script, err = ssmexec.Load(file); err != nil {
-					return err
-				}
-				haveScript = true
-			case name != "":
-				dirs, dirErr := resolveExecDirs(dir)
+			dirs, dirErr := resolveCommandDirs(src.dir, "AWST_EXEC", paths.ExecCommandsDir())
+			if src.list {
 				if dirErr != nil {
 					return dirErr
 				}
-				if script, err = loadScriptByName(name, dirs); err != nil {
-					return err
-				}
-				haveScript = true
-			default:
-				dirs, dirErr := resolveExecDirs(dir)
-				if dirErr != nil {
-					return errors.New("missing --command/-c, --file/-f, or a saved command name")
-				}
-				cmds, err := runner.List(dirs)
-				if err != nil {
-					return err
-				}
-				if len(cmds) == 0 {
-					return errors.New("missing --command/-c, --file/-f, or a saved command name (no saved commands found)")
-				}
-				if !d.isTerminal() {
-					_ = listCommands(cmd.OutOrStdout(), dirs)
-					return errors.New("no command given; pass --command/-c, --file/-f, a saved command name, or run interactively to pick one")
-				}
-				names := make([]string, len(cmds))
-				for i, sc := range cmds {
-					names[i] = sc.Name
-				}
-				chosen, err := d.selectCommand(names)
-				if err != nil {
-					if errors.Is(err, tui.ErrAborted) {
-						return nil
-					}
-					return err
-				}
-				if script, err = loadScriptByName(chosen, dirs); err != nil {
-					return err
-				}
-				haveScript = true
+				return listCommands(cmd.OutOrStdout(), dirs)
+			}
+			// A missing commands dir only matters once we need to resolve a
+			// saved name; -c and -f work without one.
+			if dirErr != nil && src.inline == "" && src.file == "" {
+				return dirErr
 			}
 
-			body := command
-			scriptName := ""
-			if haveScript {
-				body = script.Body
-				scriptName = script.Name
+			script, err := resolveCommandSource(cmd.OutOrStdout(), src, dirs, d.isTerminal, d.selectCommand)
+			if err != nil {
+				if errors.Is(err, tui.ErrAborted) {
+					return nil
+				}
+				return err
 			}
-			if strings.TrimSpace(body) == "" {
+			if strings.TrimSpace(script.Body) == "" {
 				return errors.New("empty command body")
 			}
 
 			// Flags win; the saved script's header supplies defaults.
-			if profile == "" && haveScript {
-				profile = script.Profile
-			}
-			if region == "" && haveScript {
-				region = script.Region
-			}
-			if instances == "" && haveScript {
-				instances = script.Instances
-			}
+			profile = firstNonEmpty(profile, script.Profile)
+			region = firstNonEmpty(region, script.Region)
+			instances = firstNonEmpty(instances, script.Instances)
 
 			ctx := cmd.Context()
 			if ctx == nil {
@@ -218,6 +148,12 @@ Examples:
 					return nil
 				}
 				return err
+			}
+
+			if d.ensureLogin != nil {
+				if err := d.ensureLogin(ctx, cmd.ErrOrStderr(), profile); err != nil {
+					return err
+				}
 			}
 
 			clients, err := d.clients(ctx, profile, region)
@@ -259,12 +195,12 @@ Examples:
 			}
 
 			banner := fmt.Sprintf("Running on %d instance(s) in %s...", len(ids), clients.Region)
-			if scriptName != "" {
-				banner = fmt.Sprintf("Running %q on %d instance(s) in %s...", scriptName, len(ids), clients.Region)
+			if script.Name != "" {
+				banner = fmt.Sprintf("Running %q on %d instance(s) in %s...", script.Name, len(ids), clients.Region)
 			}
 			fmt.Fprintln(cmd.ErrOrStderr(), banner)
 
-			results, err := ssmexec.Run(ctx, clients.Cmd, body, ids, d.sleep)
+			results, err := ssmexec.Run(ctx, clients.Cmd, script.Body, ids, d.sleep)
 			if err != nil {
 				return authHint(err, clients.Profile)
 			}
@@ -284,9 +220,7 @@ Examples:
 			return nil
 		},
 	}
-	c.Flags().StringVarP(&command, "command", "c", "", "Inline shell command to execute")
-	c.Flags().StringVarP(&file, "file", "f", "", "Path to a command file (script body with an optional '# key: value' header)")
-	c.Flags().StringVarP(&dir, "dir", "d", "", "Commands directory (default ~/.config/aws-tools/commands/ssm; override AWST_EXEC_CMD_DIR)")
+	addCommandSourceFlags(c, &src)
 	c.Flags().StringVarP(&instances, "instances", "i", "", "Comma-separated instance names or i-… IDs (prompts interactively if omitted)")
 	c.Flags().StringVarP(&profile, "profile", "p", "", "AWS profile (defaults to SDK chain)")
 	c.Flags().StringVarP(&region, "region", "r", "", "AWS region (defaults to SDK config)")

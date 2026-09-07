@@ -10,15 +10,12 @@ import (
 	"os/exec"
 	"strings"
 	"text/tabwriter"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/ssooidc"
 	"github.com/spf13/cobra"
 
 	"github.com/kedwards/awst/v3/internal/paths"
 	"github.com/kedwards/awst/v3/internal/runner"
-	"github.com/kedwards/awst/v3/internal/sso"
 	"github.com/kedwards/awst/v3/internal/tui"
 )
 
@@ -27,26 +24,12 @@ type runDeps struct {
 	resolveTargets func(ctx context.Context) ([]runner.Target, error) // used when no filter is given
 	ensureLogin    func(ctx context.Context, errOut io.Writer, profile string) error
 	runChild       func(args []string, env []string, stdout, stderr io.Writer) (int, error)
-	getenv         func(string) string
 	shell          func() (string, error) // POSIX shell for snippets/inline
+	isTerminal     func() bool
+	selectCommand  func(names []string) (string, error)
 }
 
 func defaultRunDeps() runDeps {
-	defaultBase := paths.RunCommandsDir()
-	login := ssoLogin{
-		cache:         sso.NewCache(paths.SSOCacheDir()),
-		sessionLoader: sso.LoadSSOSession,
-		oidcFactory: func(ctx context.Context, region string) (sso.OIDCClient, error) {
-			cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
-			if err != nil {
-				return nil, fmt.Errorf("load aws config: %w", err)
-			}
-			return ssooidc.NewFromConfig(cfg), nil
-		},
-		openBrowser: openBrowser,
-		sleep:       time.Sleep,
-		now:         time.Now,
-	}
 	return runDeps{
 		resolveCreds: defaultResolveCreds,
 		resolveTargets: func(ctx context.Context) ([]runner.Target, error) {
@@ -54,124 +37,136 @@ func defaultRunDeps() runDeps {
 				tui.SelectProfiles, regionsEffective, tui.SelectRegionFor)
 		},
 		ensureLogin: func(ctx context.Context, errOut io.Writer, profile string) error {
-			return login.ensure(ctx, errOut, profile, false)
+			return defaultSSOLogin().ensure(ctx, errOut, profile, false)
 		},
-		runChild: defaultRunChild,
-		shell:    runner.POSIXShell,
-		getenv: func(k string) string {
-			v := os.Getenv(k)
-			if v != "" {
-				return v
-			}
-			if k == "AWST_RUN_CMD_BASE" || k == "AWST_RUN_CMD_USER" {
-				return defaultBase
-			}
-			return ""
-		},
+		runChild:      defaultRunChild,
+		shell:         runner.POSIXShell,
+		isTerminal:    isStdinTerminal,
+		selectCommand: selectSavedCommand,
 	}
 }
 
 func newRunCmd(d runDeps) *cobra.Command {
-	var query, customDir string
+	var src cmdSource
+	var profile, region, targets string
 	c := &cobra.Command{
 		Use:   "run [flags] [name] [filter]",
-		Short: "Run a command or snippet across one or more AWS profiles",
-		Long: `Run a command or snippet across one or more AWS profiles.
+		Short: "Run a command across one or more AWS profiles",
+		Long: `Run a command across one or more AWS profiles. For each target awst
+resolves credentials via the SDK chain, exports AWS_PROFILE / AWS_REGION
+/ AWS_ACCESS_KEY_ID / etc. into the child environment, and execs the
+command.
 
-Snippets and executable scripts are discovered under the commands
-directory (default ~/.config/aws-tools/commands/aws). Snippet
-placeholders #ENV and #REGION are substituted to the current profile
-and region; AWS_PROFILE / AWS_REGION / AWS_ACCESS_KEY_ID / etc. are
-also exported into the child process environment, so new snippets can
-just reference $AWS_PROFILE directly.
+The command body comes from exactly one of: --command/-c (inline),
+--file/-f (a path), or a saved command name (positional, resolved from
+the commands directory) — the same three sources, in the same order of
+precedence, as "awst exec". With none of those, a terminal shows a
+picker of saved commands; a pipe/CI prints the list and exits non-zero.
+Use --list/-l to just print the list.
 
-Filter syntax (positional): comma- and/or space-separated "profile" or
-"profile:region" tokens. No filter → an interactive picker: multi-select
-the profiles, then choose a region for each (bare "profile" tokens default
-to us-east-1). With no filter and no terminal (pipe/CI), run errors instead
-of guessing.
+A saved command file is a plain script whose leading '# key: value'
+comments (description/profile/region) set defaults — explicit flags
+always win over them. Everything after the header is run verbatim via
+sh -c, so heredocs, comments, and blank lines survive. Saved commands
+live under ~/.config/aws-tools/commands/aws (override with
+AWST_RUN_CMD_BASE / AWST_RUN_CMD_USER, or -d / AWST_CMD_DIR for an
+exclusive override).
 
-Executable scripts with no filter run once without profile iteration —
+Targets come from --targets/-t (or the equivalent trailing positional),
+from --profile/-p and --region/-r, or from a picker. A target filter is
+comma- and/or space-separated "profile" or "profile:region" tokens and
+is the only way to run against several profiles at once (bare "profile"
+tokens default to us-east-1); passing more than one of -t, the
+positional filter, and -p is an error. Use -t rather than the
+positional when you want to name the targets but still pick the command
+interactively. With no targets at all, a terminal multi-selects the
+profiles and then picks a region for each, while a pipe/CI errors
+instead of guessing.
+
+Executable command files (+x) are exec'd directly instead of via sh -c,
+and with no targets at all they run once without profile iteration —
 the script is expected to handle its own iteration.
 
 Examples:
-  awst run                                     # list available commands
+  awst run                                     # pick a saved command
+  awst run -l                                  # list saved commands
   awst run vpc-cidrs                           # pick profiles + regions
   awst run vpc-cidrs "dev prod:us-west-2"      # filtered
-  awst run -q "aws s3 ls" "dev,prod:us-west-2" # inline command
+  awst run -t "dev prod:us-west-2"             # filtered, pick the command
+  awst run vpc-cidrs -p dev -r us-west-2       # single target
+  awst run -c "aws s3 ls" "dev,prod:us-west-2" # inline command
   awst run -d ./snippets my-snippet "dev"      # custom commands dir`,
 		Args: cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dirs, err := runner.ResolveDirs(runner.Options{
-				D:    firstNonEmpty(customDir, d.getenv("AWST_CMD_DIR")),
-				Base: d.getenv("AWST_RUN_CMD_BASE"),
-				User: d.getenv("AWST_RUN_CMD_USER"),
-			})
-			if err != nil {
-				// List/help still work with no dirs configured; only error
-				// when actually trying to resolve a command. Fall through.
-				if query == "" && len(args) == 0 {
-					return err
+			var filter string
+			if len(args) > 0 {
+				src.name = args[0]
+			}
+			if len(args) > 1 {
+				filter = args[1]
+			}
+			// -c/-f take the name slot, so the lone positional is the filter.
+			if (src.inline != "" || src.file != "") && src.name != "" {
+				if filter != "" {
+					return errors.New("too many arguments: with --command/-c or --file/-f the only positional is the filter")
 				}
-				if query == "" {
-					return err
+				filter, src.name = src.name, ""
+			}
+			if targets != "" {
+				if filter != "" {
+					return errors.New("specify the target filter with either --targets/-t or the positional, not both")
 				}
-				// -q doesn't need dirs; allow it to proceed with empty dirs.
-				dirs = nil
+				filter = targets
+			}
+			if filter != "" && profile != "" {
+				return errors.New("specify targets with either the target filter or --profile/-p, not both")
 			}
 
-			// Inline -q is treated as if the user passed it as the command name.
-			var name, filter string
-			switch {
-			case query != "":
-				name = query
-				if len(args) > 0 {
-					filter = args[0]
+			dirs, dirErr := resolveCommandDirs(src.dir, "AWST_RUN", paths.RunCommandsDir())
+			if src.list {
+				if dirErr != nil {
+					return dirErr
 				}
-			case len(args) == 0:
 				return listCommands(cmd.OutOrStdout(), dirs)
-			default:
-				name = args[0]
-				if len(args) > 1 {
-					filter = args[1]
-				}
+			}
+			// A missing commands dir only matters once we need to resolve a
+			// saved name; -c and -f work without one.
+			if dirErr != nil && src.inline == "" && src.file == "" {
+				return dirErr
 			}
 
-			scriptPath := ""
-			isExecutable := false
-			isInline := query != ""
-			if !isInline {
-				p, err := runner.ResolveScript(name, dirs)
-				if err != nil {
-					return err
+			script, err := resolveCommandSource(cmd.OutOrStdout(), src, dirs, d.isTerminal, d.selectCommand)
+			if err != nil {
+				if errors.Is(err, tui.ErrAborted) {
+					return nil
 				}
-				scriptPath = p
-				if info, statErr := os.Stat(scriptPath); statErr == nil {
-					isExecutable = info.Mode().Perm()&0o111 != 0
-				}
-			}
-
-			// Executable + no filter → single run, no profile iteration.
-			if isExecutable && filter == "" {
-				_, err := d.runChild([]string{scriptPath}, os.Environ(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 				return err
 			}
 
-			// Determine the command text. Inline / snippet → sh -c text;
-			// executable + filter → run script directly per profile.
-			var snippet string
-			if isInline {
-				snippet = query
-			} else if !isExecutable {
-				body, err := runner.LoadSnippet(scriptPath)
-				if err != nil {
-					return err
+			// Executable files are exec'd directly; everything else is a body
+			// for sh -c.
+			isExecutable := false
+			if script.Path != "" {
+				if info, statErr := os.Stat(script.Path); statErr == nil {
+					isExecutable = info.Mode().Perm()&0o111 != 0
 				}
-				snippet = body
+			}
+			if !isExecutable && strings.TrimSpace(script.Body) == "" {
+				return errors.New("empty command body")
 			}
 
-			// Snippets and inline commands are POSIX shell; resolve sh once
-			// up front so every child run uses the same interpreter.
+			// Flags win; the saved script's header supplies defaults.
+			profile = firstNonEmpty(profile, script.Profile)
+			region = firstNonEmpty(region, script.Region)
+
+			// Executable + no targets → single run, no profile iteration.
+			if isExecutable && filter == "" && profile == "" {
+				_, err := d.runChild([]string{script.Path}, os.Environ(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+				return err
+			}
+
+			// Bodies are POSIX shell; resolve sh once up front so every child
+			// run uses the same interpreter.
 			shell := ""
 			if !isExecutable {
 				shell, err = d.shell()
@@ -185,7 +180,7 @@ Examples:
 				ctx = context.Background()
 			}
 
-			targets, err := buildTargets(ctx, filter, d.resolveTargets)
+			targets, err := buildTargets(ctx, cmd.ErrOrStderr(), filter, profile, region, d.isTerminal, d.resolveTargets)
 			if err != nil {
 				if errors.Is(err, tui.ErrAborted) {
 					return nil // user quit the picker; clean no-op exit
@@ -221,23 +216,27 @@ Examples:
 				)
 				env = append(env, creds...)
 
-				var childArgs []string
+				childArgs := []string{shell, "-c", script.Body}
 				if isExecutable {
-					childArgs = []string{scriptPath}
-				} else {
-					childArgs = []string{shell, "-c", runner.Substitute(snippet, t.Profile, t.Region)}
+					childArgs = []string{script.Path}
 				}
 				if _, err := d.runChild(childArgs, env, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(),
 						"  %s exited non-zero: %v\n", t.Profile, err)
+					failed = append(failed, t.Profile)
 				}
 			}
-			_ = failed // bash semantics: don't fail the parent on per-profile errors
+			if len(failed) > 0 {
+				return fmt.Errorf("command failed on %d profile(s): %s",
+					len(failed), strings.Join(failed, ", "))
+			}
 			return nil
 		},
 	}
-	c.Flags().StringVarP(&query, "query", "q", "", "Inline command to run (instead of a saved snippet)")
-	c.Flags().StringVarP(&customDir, "dir", "d", "", "Commands directory (exclusive override)")
+	addCommandSourceFlags(c, &src)
+	c.Flags().StringVarP(&targets, "targets", "t", "", `Comma-separated "profile" or "profile:region" tokens (same as the positional filter)`)
+	c.Flags().StringVarP(&profile, "profile", "p", "", "AWS profile to run against (instead of a target filter)")
+	c.Flags().StringVarP(&region, "region", "r", "", "AWS region for --profile (defaults to the profile's region)")
 	return c
 }
 
@@ -270,9 +269,24 @@ func listCommands(w io.Writer, dirs []string) error {
 	return nil
 }
 
-func buildTargets(ctx context.Context, filter string, resolveTargets func(context.Context) ([]runner.Target, error)) ([]runner.Target, error) {
+// buildTargets resolves what to run against, in precedence order: the
+// positional filter (the only multi-target form), then --profile/-p (or a
+// script header's profile:), then an interactive picker.
+func buildTargets(ctx context.Context, w io.Writer, filter, profile, region string,
+	isTerminal func() bool,
+	resolveTargets func(context.Context) ([]runner.Target, error)) ([]runner.Target, error) {
 	if filter != "" {
 		return runner.ParseFilter(filter)
+	}
+	if profile != "" {
+		p, r, err := resolveProfileRegion(ctx, w, profile, region, isTerminal)
+		if err != nil {
+			return nil, err
+		}
+		if r == "" {
+			r = runner.DefaultRegion
+		}
+		return []runner.Target{{Profile: p, Region: r}}, nil
 	}
 	// No explicit targets: prompt for them (never fan out across every profile).
 	return resolveTargets(ctx)

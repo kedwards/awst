@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -24,6 +25,7 @@ type execStubSSM struct {
 	infos   []ssmtypes.InstanceInformation
 	sendErr error
 	cmdID   string
+	sent    *ssm.SendCommandInput
 	getOuts map[string]*ssm.GetCommandInvocationOutput
 }
 
@@ -33,7 +35,8 @@ func (s *execStubSSM) DescribeInstanceInformation(_ context.Context, _ *ssm.Desc
 func (s *execStubSSM) StartSession(_ context.Context, _ *ssm.StartSessionInput, _ ...func(*ssm.Options)) (*ssm.StartSessionOutput, error) {
 	return nil, errors.New("not used in exec tests")
 }
-func (s *execStubSSM) SendCommand(_ context.Context, _ *ssm.SendCommandInput, _ ...func(*ssm.Options)) (*ssm.SendCommandOutput, error) {
+func (s *execStubSSM) SendCommand(_ context.Context, in *ssm.SendCommandInput, _ ...func(*ssm.Options)) (*ssm.SendCommandOutput, error) {
+	s.sent = in
 	if s.sendErr != nil {
 		return nil, s.sendErr
 	}
@@ -69,8 +72,9 @@ func execTestDeps(ssmStub *execStubSSM, ec2Stub *execStubEC2) execDeps {
 				Profile:    profile,
 			}, nil
 		},
-		sleep:      func(time.Duration) {},
-		isTerminal: func() bool { return false },
+		ensureLogin: func(_ context.Context, _ io.Writer, _ string) error { return nil },
+		sleep:       func(time.Duration) {},
+		isTerminal:  func() bool { return false },
 		selectCommand: func([]string) (string, error) {
 			return "", errors.New("selectCommand not stubbed")
 		},
@@ -254,14 +258,52 @@ func TestExec_MissingInstances_NonTerminal(t *testing.T) {
 	require.Contains(t, err.Error(), "instance")
 }
 
-func TestExec_HelpListsFileAndDirFlags(t *testing.T) {
+func TestExec_HelpListsSharedFlags(t *testing.T) {
 	d := execTestDeps(&execStubSSM{}, &execStubEC2{})
 	out, _, err := runExec(t, d, "exec", "-h")
 	require.NoError(t, err)
-	require.Contains(t, out, "--file")
-	require.Contains(t, out, "--dir")
-	require.Contains(t, out, "--command")
-	require.Contains(t, out, "--instances")
+	for _, flag := range []string{"--command", "--file", "--dir", "--list", "--profile", "--region", "--instances"} {
+		require.Contains(t, out, flag, "flag %s missing from help", flag)
+	}
+}
+
+func TestExec_ListFlag(t *testing.T) {
+	dir := t.TempDir()
+	writeExecFile(t, dir, "check", "# description: a saved check\necho hi\n")
+	ssmStub := &execStubSSM{}
+	d := execTestDeps(ssmStub, &execStubEC2{})
+
+	out, _, err := runExec(t, d, "exec", "-d", dir, "-l")
+	require.NoError(t, err)
+	require.Contains(t, out, "check")
+	require.Contains(t, out, "a saved check")
+	require.Nil(t, ssmStub.sent, "list mode must not send a command")
+}
+
+func TestExec_NoSourceNonTerminal_ListsAndErrors(t *testing.T) {
+	dir := t.TempDir()
+	writeExecFile(t, dir, "check", "echo hi\n")
+	d := execTestDeps(&execStubSSM{}, &execStubEC2{})
+
+	out, _, err := runExec(t, d, "exec", "-d", dir)
+	require.Error(t, err)
+	require.Contains(t, out, "check", "the listing is printed as a hint")
+}
+
+func TestExec_LoginFailure_Aborts(t *testing.T) {
+	setTestProfiles(t, "dev")
+	ssmStub := &execStubSSM{infos: []ssmtypes.InstanceInformation{ssmInfo("i-aaa")}}
+	ec2Stub := &execStubEC2{instances: []ec2types.Instance{ec2Inst("i-aaa", "web")}}
+	d := execTestDeps(ssmStub, ec2Stub)
+	d.ensureLogin = func(_ context.Context, _ io.Writer, profile string) error {
+		require.Equal(t, "dev", profile)
+		return errors.New("device authorization declined")
+	}
+
+	_, _, err := runExec(t, d, "exec", "-p", "dev", "-c", "x", "-i", "web")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "device authorization declined")
+	require.Nil(t, ssmStub.sent, "nothing is sent when login fails")
 }
 
 func TestExec_AuthFailure_HintsAtLogin(t *testing.T) {

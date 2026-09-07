@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ssooidc"
 	"github.com/charmbracelet/x/term"
 
 	"github.com/kedwards/awst/v3/internal/paths"
@@ -174,6 +175,25 @@ type ssoLogin struct {
 	openBrowser   func(string) error
 	sleep         func(time.Duration)
 	now           func() time.Time
+}
+
+// defaultSSOLogin builds the real device-flow collaborators. Shared by the
+// commands that auto-login so they all behave identically on an expired token.
+func defaultSSOLogin() ssoLogin {
+	return ssoLogin{
+		cache:         sso.NewCache(paths.SSOCacheDir()),
+		sessionLoader: sso.LoadSSOSession,
+		oidcFactory: func(ctx context.Context, region string) (sso.OIDCClient, error) {
+			cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+			if err != nil {
+				return nil, fmt.Errorf("load aws config: %w", err)
+			}
+			return ssooidc.NewFromConfig(cfg), nil
+		},
+		openBrowser: openBrowser,
+		sleep:       time.Sleep,
+		now:         time.Now,
+	}
 }
 
 // ensure guarantees a valid SSO token for an SSO profile, running the device

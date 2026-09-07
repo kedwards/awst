@@ -25,7 +25,8 @@ func newConfigCmd() *cobra.Command {
 Paths marked (missing) do not exist yet — that is normal until the
 corresponding command first writes to them. Override any path-deriving
 location with its env var (AWST_CREDS_DIR, AWST_CMD_DIR,
-AWST_RUN_CMD_BASE, AWST_RUN_CMD_USER); AWS profile/region come from the
+AWST_RUN_CMD_BASE, AWST_RUN_CMD_USER, AWST_EXEC_CMD_BASE,
+AWST_EXEC_CMD_USER); AWS profile/region come from the
 standard AWS_PROFILE / AWS_REGION / AWS_DEFAULT_REGION chain.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -133,7 +134,7 @@ func printConfig(w io.Writer) {
 	fmt.Fprintln(tw, "")
 
 	fmt.Fprintln(tw, "Commands (awst exec)")
-	fmt.Fprintf(tw, "  Dir\t%s\n", marked(envOr("AWST_EXEC_CMD_DIR", paths.ExecCommandsDir())))
+	fmt.Fprintf(tw, "  Dir\t%s\n", marked(envOr("AWST_EXEC_CMD_USER", paths.ExecCommandsDir())))
 	fmt.Fprintln(tw, "")
 
 	fmt.Fprintln(tw, "Regions (picker)")

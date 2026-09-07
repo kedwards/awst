@@ -7,11 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- `awst exec` now accepts saved command files via `--file/-f <path>` or a positional name resolved from the commands directory (`~/.config/aws-tools/commands/ssm`). Saved command files are plain scripts with an optional `# key: value` header block (description/profile/region/instances) — the body is sent verbatim, so heredocs, embedded comments, and blank lines survive untouched. Explicit flags always override header values. The `-i` is now optional; omitting it prompts interactively (or errors in a pipe/CI). New flags: `--file/-f`, `--dir/-d`.
-
 ### Changed
-- `--profile` / `-p` (and the positional `[profile]` on `login`/`logout`) now does case-insensitive substring matching against profiles in `~/.aws/config`, on every command that takes a profile (`login`, `logout`, `console`, `connect`, `exec`). An exact match is used as-is. A single substring match is auto-selected (with a note on stderr). Multiple matches show an interactive picker (or error in a pipe/CI with the list of candidates). No matches pass the value through unchanged (the SDK produces the error).
+
+- **`awst exec` and `awst run` now present one command surface.** Both take
+  the command body from exactly one of `--command/-c` (inline), `--file/-f`
+  (a path), or a positional saved-command name, both read the same
+  `# key: value` header + verbatim body file format, both layer their
+  commands directories the same way, and both accept `--dir/-d`,
+  `--list/-l`, `--profile/-p`, and `--region/-r`. With no body given, a
+  terminal shows a picker of saved commands and a pipe/CI prints the list
+  and exits non-zero. What remains different is only what has to be:
+  `exec` targets instances with `--instances/-i`, `run` fans out across
+  profiles with its positional filter and runs executable scripts directly.
+
+Breaking, all on `awst run`:
+
+- `--query/-q` is gone; the inline command flag is `--command/-c`, matching
+  `exec` and the rest of the CLI.
+- Bare `awst run` no longer lists commands — it now picks one interactively
+  (or lists and exits non-zero in a pipe/CI). Use `awst run --list/-l` for
+  the old listing.
+- Command files are no longer stripped of comments and blank lines. The
+  leading `# key: value` header is parsed and everything after it is passed
+  to `sh -c` byte-for-byte, so heredocs and inline comments work.
+- The `#ENV` and `#REGION` placeholders are no longer substituted. Use
+  `$AWS_PROFILE` and `$AWS_REGION`, which have been exported into the child
+  environment since 2.x.
+- A profile that fails to authenticate or whose command exits non-zero now
+  makes `awst run` itself exit non-zero, listing the failed profiles.
+  Previously it always exited 0.
+- `AWST_EXEC_CMD_DIR` is replaced by the layered `AWST_EXEC_CMD_BASE` /
+  `AWST_EXEC_CMD_USER` pair, mirroring `AWST_RUN_CMD_BASE` /
+  `AWST_RUN_CMD_USER`. (`AWST_EXEC_CMD_DIR` never shipped in a release.)
+
+- `--profile` / `-p` (and the positional `[profile]` on `login`/`logout`) now does case-insensitive substring matching against profiles in `~/.aws/config`, on every command that takes a profile (`login`, `logout`, `console`, `connect`, `exec`, `run`). An exact match is used as-is. A single substring match is auto-selected (with a note on stderr). Multiple matches show an interactive picker (or error in a pipe/CI with the list of candidates). No matches pass the value through unchanged (the SDK produces the error).
+
+### Added
+
+- `awst exec` accepts saved command files via `--file/-f <path>` or a
+  positional name resolved from the commands directory
+  (`~/.config/aws-tools/commands/ssm`). Saved command files are plain
+  scripts with an optional `# key: value` header block
+  (description/profile/region/instances) — the body is sent verbatim, so
+  heredocs, embedded comments, and blank lines survive untouched. Explicit
+  flags always override header values. `-i` is now optional; omitting it
+  prompts interactively (or errors in a pipe/CI).
+- `awst exec` triggers the same SSO device-flow login as `connect`,
+  `console`, and `run` when a profile's cached token is missing or expired,
+  instead of failing with an auth error.
+- `awst run` accepts `--file/-f`, `--list/-l`, `--targets/-t`,
+  `--profile/-p`, and `--region/-r`. `-t` takes the same
+  `"profile"` / `"profile:region"` filter as the trailing positional, but
+  leaves the positional slot free — so `awst run -t "dev prod"` names the
+  targets and still picks the command interactively, mirroring
+  `awst exec -i web`. Passing both `-t` and the positional filter is an
+  error. `-p`/`-r` (or a command file's `# profile:` / `# region:`
+  header) select a single target without the positional filter; passing
+  both a filter and `-p` is an error.
 
 ## [3.13.0] - 2026-07-17
 

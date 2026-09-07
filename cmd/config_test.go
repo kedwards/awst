@@ -29,7 +29,7 @@ func TestConfig_ReportsResolvedPaths(t *testing.T) {
 	home := t.TempDir()
 	setConfigTestHome(t, home)
 	// Clear anything inherited so the test is deterministic.
-	for _, k := range []string{"AWST_CREDS_DIR", "AWST_CMD_DIR", "AWST_RUN_CMD_BASE", "AWST_RUN_CMD_USER", "AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION"} {
+	for _, k := range []string{"AWST_CREDS_DIR", "AWST_CMD_DIR", "AWST_RUN_CMD_BASE", "AWST_RUN_CMD_USER", "AWST_EXEC_CMD_BASE", "AWST_EXEC_CMD_USER", "AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION"} {
 		t.Setenv(k, "")
 	}
 

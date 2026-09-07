@@ -8,11 +8,12 @@ BIN="${BIN:-dist/awst}"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-# 1. --help works
+# 1. --help works and carries the surface `run` shares with `exec`
 out=$("$BIN" run --help)
 echo "$out" | grep -q "run" || fail "help missing usage: $out"
-echo "$out" | grep -q -- "-q" || fail "help missing -q: $out"
-echo "$out" | grep -q -- "-d" || fail "help missing -d: $out"
+for flag in --command --file --dir --list --profile --region --targets; do
+  echo "$out" | grep -q -- "$flag" || fail "help missing $flag: $out"
+done
 
 # 2. -d to a nonexistent dir errors
 if "$BIN" run -d /no/such/dir >/dev/null 2>&1; then
@@ -34,18 +35,24 @@ aws ec2 describe-instances
 EOF
 chmod +x "$dir/instances"
 
-out=$("$BIN" run -d "$dir")
+out=$("$BIN" run -d "$dir" -l)
 echo "$out" | grep -q "vpc-cidrs" || fail "list missing vpc-cidrs: $out"
 echo "$out" | grep -q "Show VPC CIDRs" || fail "list missing description: $out"
 echo "$out" | grep -q "instances\*" || fail "list missing executable marker: $out"
 echo "$out" | grep -q "executable script" || fail "list missing legend: $out"
 
-# 4. Unknown command errors
+# 4. No command source in a pipe lists and exits non-zero
+if out=$("$BIN" run -d "$dir" 2>/dev/null); then
+  fail "no command source should fail in a pipe"
+fi
+echo "$out" | grep -q "vpc-cidrs" || fail "no-source error should still print the list: $out"
+
+# 5. Unknown command errors
 if "$BIN" run -d "$dir" ghost-cmd >/dev/null 2>&1; then
   fail "unknown command should fail"
 fi
 
-# 5. Too many positional args
+# 6. Too many positional args
 if "$BIN" run -d "$dir" a b c >/dev/null 2>&1; then
   fail "more than 2 positional args should fail"
 fi

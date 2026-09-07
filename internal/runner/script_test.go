@@ -1,4 +1,4 @@
-package ssmexec
+package runner
 
 import (
 	"os"
