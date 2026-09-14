@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.16.0] - 2026-09-14
+
 ### Changed
 
 - **`awst exec` and `awst run` now present one command surface.** Both take
@@ -40,8 +42,6 @@ Breaking, all on `awst run`:
   `AWST_EXEC_CMD_USER` pair, mirroring `AWST_RUN_CMD_BASE` /
   `AWST_RUN_CMD_USER`. (`AWST_EXEC_CMD_DIR` never shipped in a release.)
 
-- `--profile` / `-p` (and the positional `[profile]` on `login`/`logout`) now does case-insensitive substring matching against profiles in `~/.aws/config`, on every command that takes a profile (`login`, `logout`, `console`, `connect`, `exec`, `run`). An exact match is used as-is. A single substring match is auto-selected (with a note on stderr). Multiple matches show an interactive picker (or error in a pipe/CI with the list of candidates). No matches pass the value through unchanged (the SDK produces the error).
-
 ### Added
 
 - `awst exec` accepts saved command files via `--file/-f <path>` or a
@@ -64,6 +64,22 @@ Breaking, all on `awst run`:
   error. `-p`/`-r` (or a command file's `# profile:` / `# region:`
   header) select a single target without the positional filter; passing
   both a filter and `-p` is an error.
+
+## [3.15.0] - 2026-09-02
+
+### Changed
+
+- `--profile` / `-p` (and the positional `[profile]` on `login`/`logout`) now does case-insensitive substring matching against profiles in `~/.aws/config`, on every command that takes a profile (`login`, `logout`, `console`, `connect`, `exec`, `run`). An exact match is used as-is. A single substring match is auto-selected (with a note on stderr). Multiple matches show an interactive picker (or error in a pipe/CI with the list of candidates). No matches pass the value through unchanged (the SDK produces the error).
+
+## [3.14.0] - 2026-08-13
+
+### Removed
+
+- Windows support.
+
+### Added
+
+- fish shell integration.
 
 ## [3.13.0] - 2026-07-17
 
