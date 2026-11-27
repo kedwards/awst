@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 
@@ -57,6 +58,9 @@ func LoadSSOSession(ctx context.Context, profile, configFile string) (SSOSession
 	if shared.SSOSession.SSOStartURL == "" {
 		return SSOSession{}, fmt.Errorf("sso-session %q missing sso_start_url", shared.SSOSession.Name)
 	}
+	if err := validateStartURL(shared.SSOSession.Name, shared.SSOSession.SSOStartURL, awsConfigPath(configFile)); err != nil {
+		return SSOSession{}, err
+	}
 
 	return SSOSession{
 		Name:     shared.SSOSession.Name,
@@ -91,6 +95,42 @@ func profileNotFoundError(profile, configFile string, err error) error {
 		fmt.Fprintf(&b, "\n  hint: set it up with `aws configure sso`, or add a [profile %s] block referencing an sso_session", profile)
 	}
 	return fmt.Errorf("%s: %w", b.String(), err)
+}
+
+// validateStartURL rejects sso_start_url values AWS would answer with a bare
+// 400 InvalidRequestException — most often a URL pasted from Slack or
+// Markdown with backticks or quotes still around it.
+func validateStartURL(session, raw, path string) error {
+	const wrapping = "`\"' \t"
+	cleaned := strings.Trim(raw, wrapping)
+
+	var problem string
+	switch {
+	case cleaned != raw:
+		problem = "it is wrapped in quotes, backticks, or whitespace"
+	case strings.ContainsAny(raw, wrapping):
+		problem = "it contains quotes, backticks, or whitespace"
+	default:
+		u, err := url.Parse(raw)
+		switch {
+		case err != nil:
+			problem = "it is not a valid URL"
+		case u.Scheme != "https" || u.Host == "":
+			problem = "it must be an https:// URL"
+		default:
+			return nil
+		}
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "sso-session %q in %s has an invalid sso_start_url: %s\n  got:      sso_start_url = %s",
+		session, path, problem, raw)
+	if u, err := url.Parse(cleaned); err == nil && u.Scheme == "https" && u.Host != "" && !strings.ContainsAny(cleaned, wrapping) {
+		fmt.Fprintf(&b, "\n  expected: sso_start_url = %s", cleaned)
+	} else {
+		b.WriteString("\n  expected: sso_start_url = https://<your-org>.awsapps.com/start")
+	}
+	return errors.New(b.String())
 }
 
 func awsConfigPath(configFile string) string {

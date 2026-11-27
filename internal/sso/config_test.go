@@ -129,6 +129,47 @@ func TestLoadSSOSession_MissingProfile(t *testing.T) {
 	require.Contains(t, err.Error(), "ghost")
 }
 
+func sessionWithStartURL(startURL string) string {
+	return "[profile dev]\nsso_session = my-sso\nsso_account_id = 123456789012\nsso_role_name = Developer\n\n" +
+		"[sso-session my-sso]\nsso_start_url = " + startURL + "\nsso_region = us-east-1\n"
+}
+
+func TestLoadSSOSession_StartURLWrappedInBackticks(t *testing.T) {
+	cfg := writeConfig(t, sessionWithStartURL("`https://d-123.awsapps.com/start/#/`"))
+
+	_, err := LoadSSOSession(context.Background(), "dev", cfg)
+
+	require.Error(t, err)
+	msg := err.Error()
+	require.Contains(t, msg, `sso-session "my-sso"`)
+	require.Contains(t, msg, cfg)
+	require.Contains(t, msg, "wrapped in quotes, backticks, or whitespace")
+	require.Contains(t, msg, "expected: sso_start_url = https://d-123.awsapps.com/start/#/")
+}
+
+func TestLoadSSOSession_StartURLNotHTTPS(t *testing.T) {
+	for _, raw := range []string{"http://d-123.awsapps.com/start", "d-123.awsapps.com/start"} {
+		t.Run(raw, func(t *testing.T) {
+			cfg := writeConfig(t, sessionWithStartURL(raw))
+
+			_, err := LoadSSOSession(context.Background(), "dev", cfg)
+
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "must be an https:// URL")
+			require.Contains(t, err.Error(), "https://<your-org>.awsapps.com/start")
+		})
+	}
+}
+
+func TestLoadSSOSession_StartURLWithFragmentAccepted(t *testing.T) {
+	cfg := writeConfig(t, sessionWithStartURL("https://d-123.awsapps.com/start/#/"))
+
+	got, err := LoadSSOSession(context.Background(), "dev", cfg)
+
+	require.NoError(t, err)
+	require.Equal(t, "https://d-123.awsapps.com/start/#/", got.StartURL)
+}
+
 func TestLoadSSOSession_MissingSSORegion(t *testing.T) {
 	cfg := writeConfig(t, malformedSessionConfig)
 
