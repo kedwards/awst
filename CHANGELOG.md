@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.16.1] - 2026-11-27
+
+### Fixed
+
+- **Malformed `sso_start_url` values are rejected with a clear error.** A
+  start URL wrapped in backticks or quotes (common when pasted from Slack or
+  Markdown), or one that is not `https://`, used to surface as an opaque
+  `StartDeviceAuthorization ... 400 InvalidRequestException`. awst now names
+  the sso-session and config file, shows the offending line, and suggests
+  the corrected value.
+
 ## [3.16.0] - 2026-09-14
 
 ### Changed
